@@ -1,35 +1,46 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import React, { Suspense, lazy } from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import Header from './components/ui/Header';
+import Footer from './components/ui/Footer';
+import OfflineIndicator from './components/ui/OfflineIndicator';
+import PanicButton from './components/ui/PanicButton';
+import { ToastContainer } from './components/ui/useToast.jsx';
+import './App.css';
+
+// Lazy-loaded page components
+const Home = lazy(() => import('./pages/Home'));
+const Help = lazy(() => import('./pages/Help'));
+const Volunteer = lazy(() => import('./pages/Volunteer'));
+const MapPage = lazy(() => import('./pages/MapPage'));
+const OfflineGuide = lazy(() => import('./pages/OfflineGuide'));
 
 function App() {
-  const [count, setCount] = useState(0)
-
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+    <BrowserRouter>
+      <div className="app-container min-h-screen flex flex-col">
+        <Header />
+        
+        <main className="flex-grow">
+          <Suspense fallback={<div>Loading...</div>}>
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/help" element={<Help />} />
+              <Route path="/volunteer" element={<Volunteer />} />
+              <Route path="/map" element={<MapPage />} />
+              <Route path="/offline-guide" element={<OfflineGuide />} />
+            </Routes>
+          </Suspense>
+        </main>
+
+        <Footer />
+        
+        {/* Persistent UI components */}
+        <OfflineIndicator />
+        <PanicButton />
+        <ToastContainer />
       </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    </BrowserRouter>
+  );
 }
 
-export default App
+export default App;
