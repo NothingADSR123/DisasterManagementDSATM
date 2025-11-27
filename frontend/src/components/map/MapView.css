@@ -1,0 +1,244 @@
+/* MapView.css - Styles for the MapView component */
+
+.map-view-container {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Offline Indicator */
+.offline-indicator {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  background-color: #f59e0b;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  font-weight: 600;
+  font-size: 14px;
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* Offline Mode Styling */
+.map-view-container.offline {
+  filter: grayscale(0.3);
+}
+
+.map-view-container.offline::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 193, 7, 0.05);
+  z-index: 999;
+  pointer-events: none;
+}
+
+/* Route Controls */
+.route-controls {
+  position: absolute;
+  top: 60px;
+  right: 10px;
+  z-index: 1000;
+}
+
+.close-route-btn {
+  background-color: #ef4444;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  transition: background-color 0.2s;
+}
+
+.close-route-btn:hover {
+  background-color: #dc2626;
+}
+
+.close-route-btn:active {
+  background-color: #b91c1c;
+}
+
+/* Custom Marker Styles */
+.need-help-marker,
+.can-help-marker,
+.shelter-marker,
+.route-marker {
+  background: transparent;
+  border: none;
+}
+
+/* Leaflet Popup Customization */
+.leaflet-popup-content-wrapper {
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.leaflet-popup-content {
+  margin: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+}
+
+.leaflet-popup-tip {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Popup Button Styles */
+.leaflet-popup-content button {
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.leaflet-popup-content button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.leaflet-popup-content button:active {
+  transform: translateY(0);
+}
+
+.leaflet-popup-content button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Leaflet Controls Positioning */
+.leaflet-control-zoom {
+  margin-top: 60px !important;
+}
+
+/* Routing Machine Styling */
+.leaflet-routing-container {
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  max-width: 300px;
+}
+
+.leaflet-routing-container h2,
+.leaflet-routing-container h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.leaflet-routing-alt {
+  padding: 8px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .offline-indicator {
+    font-size: 12px;
+    padding: 6px 12px;
+  }
+
+  .route-controls {
+    top: 50px;
+    right: 5px;
+  }
+
+  .close-route-btn {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+
+  .leaflet-routing-container {
+    max-width: 250px;
+    font-size: 12px;
+  }
+
+  .leaflet-popup-content {
+    margin: 8px;
+  }
+}
+
+/* Loading State */
+.map-view-container.loading::after {
+  content: 'Loading map...';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2000;
+  background-color: rgba(255, 255, 255, 0.95);
+  padding: 16px 24px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  font-weight: 600;
+  color: #374151;
+}
+
+/* Heatmap Layer (leaflet.heat doesn't need much custom styling) */
+.leaflet-heatmap-layer {
+  opacity: 0.7;
+}
+
+/* Accessibility */
+.map-view-container:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: -2px;
+}
+
+/* Shelter Popup Styles */
+.shelter-popup .leaflet-popup-content-wrapper {
+  border-radius: 8px;
+  padding: 0;
+}
+
+.shelter-popup .leaflet-popup-content {
+  margin: 0;
+  padding: 12px;
+}
+
+/* Shelter Marker Animation */
+.shelter-marker {
+  animation: shelterPulse 2s ease-in-out infinite;
+}
+
+@keyframes shelterPulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+/* Print Styles */
+@media print {
+  .offline-indicator,
+  .route-controls,
+  .leaflet-control-zoom {
+    display: none !important;
+  }
+
+  .map-view-container {
+    height: 100vh;
+    width: 100%;
+  }
+}
