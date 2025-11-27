@@ -571,5 +571,8 @@ const offlineQueue = {
   getStats
 };
 
+// Alias for compatibility with other parts of the codebase
+export const saveToLocalQueue = add;
+
 export { offlineQueue };
 export default offlineQueue;
