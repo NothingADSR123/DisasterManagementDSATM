@@ -16,11 +16,11 @@ function Header() {
   const isActive = (path) => location.pathname === path;
 
   return (
-    <header className="bg-blue-600 text-white shadow-md">
+    <header className="bg-white shadow-md" style={{ borderBottom: '3px solid #415A78' }}>
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <Link to="/" className="text-xl font-bold hover:text-blue-100 transition-colors">
+          <Link to="/" className="text-xl font-bold hover:opacity-80 transition-opacity" style={{ color: '#415A78' }}>
             DisasterManagement
           </Link>
 
@@ -30,9 +30,16 @@ function Header() {
               <Link
                 key={link.path}
                 to={link.path}
-                className={`hover:text-blue-100 transition-colors px-2 py-1 rounded focus:outline-none focus:ring-2 focus:ring-blue-300 ${
-                  isActive(link.path) ? 'font-semibold underline' : ''
+                className={`transition-all px-3 py-1.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                  isActive(link.path) 
+                    ? 'font-semibold shadow-sm' 
+                    : 'hover:bg-gray-100'
                 }`}
+                style={{
+                  color: isActive(link.path) ? '#fff' : '#415A78',
+                  backgroundColor: isActive(link.path) ? '#415A78' : 'transparent',
+                  focusRingColor: '#415A78'
+                }}
                 aria-current={isActive(link.path) ? 'page' : undefined}
               >
                 {link.label}
@@ -43,7 +50,8 @@ function Header() {
           {/* Mobile Hamburger Button */}
           <button
             onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="md:hidden p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-300"
+            className="md:hidden p-2 rounded focus:outline-none focus:ring-2 focus:ring-offset-2"
+            style={{ color: '#415A78', focusRingColor: '#415A78' }}
             aria-label="Toggle navigation menu"
             aria-expanded={isMenuOpen}
           >
@@ -82,9 +90,14 @@ function Header() {
                   key={link.path}
                   to={link.path}
                   onClick={() => setIsMenuOpen(false)}
-                  className={`hover:bg-blue-700 px-4 py-2 rounded transition-colors focus:outline-none focus:ring-2 focus:ring-blue-300 ${
-                    isActive(link.path) ? 'font-semibold bg-blue-700' : ''
+                  className={`px-4 py-2 rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                    isActive(link.path) ? 'font-semibold shadow-sm' : 'hover:bg-gray-100'
                   }`}
+                  style={{
+                    color: isActive(link.path) ? '#fff' : '#415A78',
+                    backgroundColor: isActive(link.path) ? '#415A78' : 'transparent',
+                    focusRingColor: '#415A78'
+                  }}
                   aria-current={isActive(link.path) ? 'page' : undefined}
                 >
                   {link.label}

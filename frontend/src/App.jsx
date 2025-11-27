@@ -37,7 +37,7 @@ function App() {
 
   return (
     <Router>
-      <div className="min-h-screen flex flex-col bg-gray-50">
+      <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#D8E3FF' }}>
         <Header />
         <OfflineIndicator />
         <main className="flex-1">

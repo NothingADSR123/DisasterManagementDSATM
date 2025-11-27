@@ -12,6 +12,7 @@ import RoutingControl from './RoutingControl';
 // Import utilities
 import { getAll, subscribe, add, STORES } from '../../lib/idb';
 import { offlineQueue } from '../../lib/offlineQueue';
+import { seedMapFixtures } from '../../lib/fixtures/mapFixtures';
 
 // Fix for default marker icons in Leaflet with webpack/vite
 delete L.Icon.Default.prototype._getIconUrl;
@@ -40,7 +41,7 @@ function MapClickHandler({ onMapClick }) {
  * MapView Component
  * Main map component with offline support and real-time data
  */
-export default function MapView() {
+export default function MapView({ filters = { showShelters: true, intensity: 50 }, mapKey = 0 }) {
   // State
   const [helpRequests, setHelpRequests] = useState([]);
   const [volunteers, setVolunteers] = useState([]);
@@ -61,6 +62,27 @@ export default function MapView() {
   const DEFAULT_CENTER = [12.9716, 77.5946]; // Bangalore, India - CHANGE THIS as needed
   const DEFAULT_ZOOM = 13;
 
+  // Handle map resize when layout changes
+  useEffect(() => {
+    if (mapRef.current) {
+      setTimeout(() => {
+        mapRef.current.invalidateSize();
+        // Fit bounds with padding to keep markers visible
+        if (helpRequests.length > 0 || shelters.length > 0) {
+          const allPoints = [
+            ...helpRequests.map(r => [r.lat || r.latitude, r.lng || r.longitude]),
+            ...shelters.map(s => [s.lat || s.latitude, s.lng || s.longitude])
+          ].filter(p => p[0] && p[1]);
+          
+          if (allPoints.length > 0) {
+            const bounds = L.latLngBounds(allPoints);
+            mapRef.current.fitBounds(bounds, { padding: [60, 60], maxZoom: 15 });
+          }
+        }
+      }, 100);
+    }
+  }, [mapKey, helpRequests, shelters]);
+
   /**
    * Load initial data from IndexedDB on mount
    */
@@ -73,17 +95,44 @@ export default function MapView() {
           getAll(STORES.SHELTERS)
         ]);
 
-        setHelpRequests(requests);
-        setVolunteers(vols);
-        setShelters(shelts);
+        // Seed fixtures if no data exists (dev mode)
+        if ((!requests || requests.length === 0) && 
+            (!vols || vols.length === 0) && 
+            (!shelts || shelts.length === 0)) {
+          console.log('[MapView] No data found, seeding fixtures...');
+          await seedMapFixtures();
+          
+          // Reload data after seeding
+          const [newRequests, newVols, newShelts] = await Promise.all([
+            getAll(STORES.HELP_REQUESTS),
+            getAll(STORES.VOLUNTEERS),
+            getAll(STORES.SHELTERS)
+          ]);
+          
+          setHelpRequests(newRequests);
+          setVolunteers(newVols);
+          setShelters(newShelts);
+          
+          // Generate heatmap points from help requests
+          const points = newRequests.map(req => ({
+            lat: req.lat || req.latitude,
+            lng: req.lng || req.longitude,
+            intensity: req.severity === 'High' ? 1.0 : req.severity === 'Medium' ? 0.6 : 0.3
+          }));
+          setHeatmapPoints(points);
+        } else {
+          setHelpRequests(requests);
+          setVolunteers(vols);
+          setShelters(shelts);
 
-        // Generate heatmap points from help requests
-        const points = requests.map(req => ({
-          lat: req.lat || req.latitude,
-          lng: req.lng || req.longitude,
-          intensity: req.severity || 0.5
-        }));
-        setHeatmapPoints(points);
+          // Generate heatmap points from help requests
+          const points = requests.map(req => ({
+            lat: req.lat || req.latitude,
+            lng: req.lng || req.longitude,
+            intensity: req.severity === 'High' ? 1.0 : req.severity === 'Medium' ? 0.6 : 0.3
+          }));
+          setHeatmapPoints(points);
+        }
       } catch (error) {
         console.error('Error loading initial data:', error);
       }
@@ -150,9 +199,11 @@ export default function MapView() {
    */
   useEffect(() => {
     const handleRouteRequest = (event) => {
-      const { from, to } = event.detail;
+      const { from, to, name } = event.detail;
+      console.log('[MapView] Route requested:', { from, to, name });
       
       if (from && to) {
+        console.log('[MapView] Setting route from/to:', from, to);
         setRouteFrom(from);
         setRouteTo(to);
         setShowRouting(true);
@@ -318,39 +369,42 @@ export default function MapView() {
    * Handle map click to add help request
    */
   const handleMapClick = async (latlng) => {
-    // Dispatch event to open NeedHelpForm
-    window.dispatchEvent(new CustomEvent('map:addHelpRequest', {
-      detail: {
-        lat: latlng.lat,
-        lng: latlng.lng
-      }
-    }));
+    // Show a prompt dialog to add SOS request
+    const description = window.prompt(
+      `Add SOS Request at this location?\n\nLatitude: ${latlng.lat.toFixed(6)}\nLongitude: ${latlng.lng.toFixed(6)}\n\nDescribe your emergency:`
+    );
+    
+    if (description && description.trim()) {
+      try {
+        // Create the help request
+        const helpRequest = {
+          id: `help-${Date.now()}`,
+          lat: latlng.lat,
+          lng: latlng.lng,
+          latitude: latlng.lat,
+          longitude: latlng.lng,
+          type: 'SOS',
+          severity: 'High',
+          description: description.trim(),
+          timestamp: Date.now(),
+          status: 'pending'
+        };
 
-    // Alternative: Add directly to queue when offline
-    if (isOffline) {
-      const confirmed = window.confirm('You are offline. Add help request to queue?');
-      if (confirmed) {
-        try {
+        // Add to IndexedDB for immediate display
+        await add(STORES.HELP_REQUESTS, helpRequest);
+        
+        // If offline, add to queue for later sync
+        if (isOffline) {
           await offlineQueue.add({
             type: 'addHelpRequest',
-            data: {
-              lat: latlng.lat,
-              lng: latlng.lng,
-              timestamp: Date.now()
-            }
+            data: helpRequest
           });
-          
-          // Also add to local IndexedDB for immediate display
-          await add(STORES.HELP_REQUESTS, {
-            lat: latlng.lat,
-            lng: latlng.lng,
-            type: 'General',
-            severity: 'Medium',
-            description: 'Added while offline'
-          });
-        } catch (error) {
-          console.error('Error adding help request:', error);
+          alert('SOS added to offline queue. Will sync when online.');
+        } else {
+          alert('SOS request added successfully!');
         }
+      } catch (error) {
+        console.error('Error adding help request:', error);
       }
     }
   };
@@ -359,9 +413,16 @@ export default function MapView() {
    * Handle route found
    */
   const handleRouteFound = (routeData) => {
-    console.log('Route found:', routeData);
-    // You can display route info in a panel or notification
+    console.log('[MapView] Route found:', routeData);
+    // Optional: Show a notification
+    if (routeData && routeData.distance) {
+      const distanceKm = (routeData.distance / 1000).toFixed(2);
+      const durationMin = Math.round(routeData.duration / 60);
+      console.log(`Route: ${distanceKm}km, ${durationMin} minutes`);
+    }
   };
+
+  console.log('[MapView] Current routing state:', { showRouting, routeFrom, routeTo });
 
   return (
     <div className={`map-view-container ${isOffline ? 'offline' : ''}`}>
@@ -398,11 +459,8 @@ export default function MapView() {
         {/* Map Click Handler */}
         <MapClickHandler onMapClick={handleMapClick} />
 
-        {/* Shelters Component - loads its own data from IndexedDB */}
-        <Shelters />
-
-        {/* Heatmap Layer */}
-        <HeatmapLayer ref={heatmapLayerRef} points={heatmapPoints} />
+        {/* Shelters Component - only show if enabled */}
+        {filters.showShelters && <Shelters />}
 
         {/* Routing Control */}
         <RoutingControl

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet-routing-machine';
+import 'leaflet-routing-machine/dist/leaflet-routing-machine.css';
 import { getCachedRoute, cacheRoute } from '../../lib/routing';
 
 /**
@@ -113,7 +114,8 @@ export default function RoutingControl({
    * Render cached route
    */
   const renderCachedRoute = (cachedRoute) => {
-    console.log('Rendering cached route');
+    console.log('[RoutingControl] Rendering cached route:', cachedRoute);
+    console.log('[RoutingControl] From:', from, 'To:', to);
     setRouteStatus('cached');
 
     // Create markers
@@ -232,10 +234,12 @@ export default function RoutingControl({
     }
 
     const computeRoute = async () => {
+      console.log('[RoutingControl] Computing route from', from, 'to', to);
       setRouteStatus('loading');
 
       // Check for cached route first (offline-first approach)
       const cachedRoute = await getCachedRoute(from, to);
+      console.log('[RoutingControl] Cached route found:', !!cachedRoute);
 
       if (!isOnline) {
         // Offline mode
@@ -305,6 +309,7 @@ export default function RoutingControl({
 
         // Listen for route found event
         routingControl.on('routesfound', async function(e) {
+          console.log('[RoutingControl] Route found:', e.routes);
           const routes = e.routes;
           const route = routes[0];
           const summary = route.summary;

@@ -12,8 +12,8 @@
  */
 
 const DB_NAME = 'rescue-pwa';
-const DB_VERSION = 1;
-const STORES = ['requests', 'volunteers', 'shelters', 'routes', 'offlineQueue', 'peers'];
+const DB_VERSION = 2;
+const STORES = ['requests', 'volunteers', 'shelters', 'routes', 'offlineQueue', 'peers', 'evacuationNotifications', 'crowdReports'];
 
 let dbInstance = null;
 const watchers = new Map(); // storeName -> Set<callback>

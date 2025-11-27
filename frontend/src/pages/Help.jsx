@@ -1,135 +1,387 @@
-import React, { useState } from 'react';
-import NeedHelpForm from '../components/forms/NeedHelpForm';
-import PanicButton from '../components/ui/PanicButton';
-import Card from '../components/ui/Card';
-import Button from '../components/ui/Button';
-import { useToast } from '../components/ui/useToast.jsx';
-// Stub import - implementation will be handled by data team
-import { saveToLocalQueue } from '../lib/offlineQueue';
+import React, { useState, useEffect } from 'react';
+import { add, remove } from '../lib/idb';
+import * as offlineQueue from '../lib/offlineQueue';
+
+// Helper to generate unique ID
+const generateUUID = () => {
+  return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+};
+
+// Helper to compute hash
+const computeHash = async (data) => {
+  const str = JSON.stringify(data);
+  try {
+    const msgBuffer = new TextEncoder().encode(str);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    // Fallback simple hash
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = ((hash << 5) - hash) + str.charCodeAt(i);
+      hash = hash & hash;
+    }
+    return Math.abs(hash).toString(16);
+  }
+};
 
 function Help() {
-  const [showPanicModal, setShowPanicModal] = useState(false);
-  const { showToast } = useToast();
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [location, setLocation] = useState(null);
+  const [address, setAddress] = useState('');
+  const [description, setDescription] = useState('');
+  const [urgency, setUrgency] = useState('Medium');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingSync, setPendingSync] = useState(false);
+  const [error, setError] = useState('');
+  const [showUndo, setShowUndo] = useState(false);
+  const [lastRequestId, setLastRequestId] = useState(null);
+  const [undoTimeout, setUndoTimeout] = useState(null);
 
-  const handleFormSubmit = (data) => {
-    // Save to local queue (stub function)
-    try {
-      saveToLocalQueue(data);
-    } catch (error) {
-      console.log('Local queue save (stub):', data);
+  useEffect(() => {
+    // Listen for map location picked
+    const handleLocationPicked = (event) => {
+      const { lat, lng, address: addr } = event.detail;
+      setLocation({ lat, lng });
+      setAddress(addr || `${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+    };
+
+    window.addEventListener('map:location-picked', handleLocationPicked);
+
+    return () => {
+      window.removeEventListener('map:location-picked', handleLocationPicked);
+      if (undoTimeout) {
+        clearTimeout(undoTimeout);
+      }
+    };
+  }, [undoTimeout]);
+
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      setError('Geolocation is not supported by your browser');
+      return;
     }
 
-    // Show success toast
-    showToast('Help request submitted! Volunteers nearby have been notified.', 'success', 4000);
+    setError('Getting your location...');
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        setLocation({ lat, lng });
+        setAddress(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+        setError('');
+      },
+      (err) => {
+        setError('Could not get your location. Please pick on map.');
+        console.error('Geolocation error:', err);
+      },
+      { timeout: 5000, enableHighAccuracy: false }
+    );
   };
 
-  const handlePickLocation = () => {
-    console.log('Maps team: Open location picker');
-    alert('Location picker will be implemented by Maps team');
+  const handlePickOnMap = () => {
+    window.dispatchEvent(new CustomEvent('map:pick-location', {
+      detail: { mode: 'for-request' }
+    }));
   };
 
-  const handlePanic = () => {
-    setShowPanicModal(true);
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    // Validation
+    if (!location) {
+      setError('Location is required. Please use your location or pick on map.');
+      return;
+    }
+
+    if (!phone.trim() && !description.trim()) {
+      setError('Please provide at least your phone number or a description.');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const id = generateUUID();
+      const now = Date.now();
+
+      const request = {
+        id,
+        type: 'need',
+        name: name.trim(),
+        phone: phone.trim(),
+        description: description.trim(),
+        urgency,
+        location: {
+          lat: location.lat,
+          lng: location.lng
+        },
+        address,
+        status: 'open',
+        createdAt: now,
+        updatedAt: now,
+        source: 'local',
+        pendingSync: true
+      };
+
+      // Compute hash
+      request.hash = await computeHash(request);
+
+      // Save to IndexedDB
+      await add('requests', request);
+
+      // Add to offline queue
+      try {
+        await offlineQueue.add({
+          type: 'request:create',
+          payload: request
+        });
+      } catch (queueErr) {
+        console.warn('Offline queue not available:', queueErr);
+      }
+
+      // Dispatch events
+      window.dispatchEvent(new CustomEvent('request:created', {
+        detail: { id: request.id }
+      }));
+
+      window.dispatchEvent(new CustomEvent('map:add-request-marker', {
+        detail: {
+          id,
+          lat: location.lat,
+          lng: location.lng,
+          type: 'request'
+        }
+      }));
+
+      // Show undo toast
+      setLastRequestId(id);
+      setShowUndo(true);
+      setPendingSync(true);
+
+      // Hide undo after 5 seconds
+      const timeout = setTimeout(() => {
+        setShowUndo(false);
+      }, 5000);
+      setUndoTimeout(timeout);
+
+      // Reset form
+      setName('');
+      setPhone('');
+      setDescription('');
+      setUrgency('Medium');
+      setLocation(null);
+      setAddress('');
+      setIsSubmitting(false);
+
+    } catch (err) {
+      console.error('Error submitting request:', err);
+      setError('Failed to submit request. Please try again.');
+      setIsSubmitting(false);
+    }
   };
 
-  const confirmPanic = () => {
-    console.log('PANIC activated - sending emergency alerts');
-    showToast('Emergency alert sent to all nearby volunteers!', 'warning', 5000);
-    setShowPanicModal(false);
+  const handleUndo = async () => {
+    if (!lastRequestId) return;
+
+    try {
+      // Remove from IndexedDB
+      await remove('requests', lastRequestId);
+
+      // Try to remove from offline queue
+      try {
+        if (offlineQueue.removeByPayloadId) {
+          await offlineQueue.removeByPayloadId(lastRequestId);
+        }
+      } catch (err) {
+        console.warn('Could not remove from queue:', err);
+      }
+
+      // Dispatch deleted event
+      window.dispatchEvent(new CustomEvent('request:deleted', {
+        detail: { id: lastRequestId }
+      }));
+
+      setShowUndo(false);
+      setPendingSync(false);
+      setLastRequestId(null);
+      if (undoTimeout) {
+        clearTimeout(undoTimeout);
+      }
+
+    } catch (err) {
+      console.error('Error undoing request:', err);
+    }
   };
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
-      {/* Page Header */}
-      <section className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-4">Request Help</h1>
-        <p className="text-lg text-gray-600">
-          Fill out the form below to request assistance during an emergency. 
-          Your request will be shared with nearby volunteers who can help you.
-        </p>
-      </section>
+    <div className="min-h-screen bg-[#dfe7ff] py-8 px-4">
+      <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-8">
+        <h1 className="text-3xl font-bold text-gray-900 mb-6">Request Emergency Help</h1>
+        
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Name field (optional) */}
+          <div>
+            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
+              Name <span className="text-gray-500">(optional)</span>
+            </label>
+            <input
+              type="text"
+              id="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg bg-white text-gray-900"
+              placeholder="Your name"
+            />
+          </div>
 
-      {/* Help Request Form */}
-      <section className="mb-12">
-        <Card title="Help Request Form" subtitle="Provide details about your situation">
-          <NeedHelpForm 
-            onSubmit={handleFormSubmit} 
-            onPickLocation={handlePickLocation}
-          />
-        </Card>
-      </section>
+          {/* Phone field */}
+          <div>
+            <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
+              Phone Number
+            </label>
+            <input
+              type="tel"
+              id="phone"
+              inputMode="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg bg-white text-gray-900"
+              placeholder="Your contact number"
+            />
+          </div>
 
-      {/* Panic Section */}
-      <section className="mb-8">
-        <Card 
-          title="Emergency Panic Button" 
-          subtitle="For immediate, life-threatening emergencies"
-          className="bg-red-50 border-2 border-red-200"
-        >
-          <div className="space-y-4">
-            <p className="text-gray-700">
-              The Panic Button is designed for critical, life-threatening situations where 
-              you need immediate help. When activated, it will:
-            </p>
-            <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
-              <li>Send instant alerts to all nearby volunteers</li>
-              <li>Share your current location automatically</li>
-              <li>Trigger emergency response protocols</li>
-              <li>Notify local emergency services if available</li>
-            </ul>
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mt-4">
-              <p className="text-sm text-yellow-800 font-medium">
-                ⚠️ Only use the Panic Button in genuine emergencies. False alarms can 
-                divert resources from people who truly need help.
-              </p>
-            </div>
-            <div className="flex justify-center mt-6">
-              <div className="relative">
-                <PanicButton onPanic={handlePanic} />
-                <p className="text-center text-sm text-gray-600 mt-20">
-                  Click the button above for emergencies
-                </p>
+          {/* Location block */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Location <span className="text-red-500">*</span>
+            </label>
+            <div className="space-y-3">
+              {location ? (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <p className="text-sm font-medium text-green-800">
+                    📍 {address || `${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}`}
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                  <p className="text-sm text-gray-600">No location selected</p>
+                </div>
+              )}
+              
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={handleUseMyLocation}
+                  className="flex-1 px-4 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+                >
+                  📍 Use My Location
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePickOnMap}
+                  className="flex-1 px-4 py-3 bg-gray-600 text-white font-medium rounded-lg hover:bg-gray-700 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
+                >
+                  🗺️ Pick on Map
+                </button>
               </div>
             </div>
           </div>
-        </Card>
-      </section>
 
-      {/* Panic Confirmation Modal */}
-      {showPanicModal && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="panic-modal-title"
-        >
-          <Card className="max-w-md w-full">
-            <h2 id="panic-modal-title" className="text-xl font-bold text-red-600 mb-4">
-              Confirm Emergency Alert
-            </h2>
-            <p className="text-gray-700 mb-6">
-              Are you sure you want to activate the panic button? This will send an 
-              emergency alert to all nearby volunteers and emergency services.
-            </p>
-            <div className="flex space-x-3">
-              <Button
-                variant="primary"
-                onClick={confirmPanic}
-                className="flex-1 bg-red-600 hover:bg-red-700"
-              >
-                Yes, Send Alert
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => setShowPanicModal(false)}
-                className="flex-1"
-              >
-                Cancel
-              </Button>
+          {/* Description field */}
+          <div>
+            <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
+              Short Description
+            </label>
+            <input
+              type="text"
+              id="description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              maxLength={140}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg bg-white text-gray-900"
+              placeholder="e.g., Need medical help / trapped / food"
+            />
+            <p className="mt-1 text-sm text-gray-500">{description.length}/140 characters</p>
+          </div>
+
+          {/* Urgency radios */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              Urgency Level
+            </label>
+            <div className="flex gap-4">
+              {['Low', 'Medium', 'High'].map((level) => (
+                <label
+                  key={level}
+                  className={`flex-1 flex items-center justify-center px-4 py-3 border-2 rounded-lg cursor-pointer transition-all ${
+                    urgency === level
+                      ? level === 'High'
+                        ? 'border-red-500 bg-red-50'
+                        : level === 'Medium'
+                        ? 'border-yellow-500 bg-yellow-50'
+                        : 'border-green-500 bg-green-50'
+                      : 'border-gray-300 bg-white hover:border-gray-400'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="urgency"
+                    value={level}
+                    checked={urgency === level}
+                    onChange={(e) => setUrgency(e.target.value)}
+                    className="sr-only"
+                  />
+                  <span className={`font-medium ${urgency === level ? 'text-gray-900' : 'text-gray-600'}`}>
+                    {level}
+                  </span>
+                </label>
+              ))}
             </div>
-          </Card>
-        </div>
-      )}
+          </div>
+
+          {/* Error message */}
+          {error && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-800">{error}</p>
+            </div>
+          )}
+
+          {/* Submit button */}
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full px-6 py-4 bg-red-600 text-white font-bold text-lg rounded-lg hover:bg-red-700 focus:ring-4 focus:ring-red-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+          >
+            {isSubmitting ? 'Submitting...' : 'Submit Help Request'}
+          </button>
+
+          {/* Pending status */}
+          {pendingSync && (
+            <div className="text-center">
+              <p className="text-sm text-gray-600">
+                Status: <span className="font-medium text-yellow-600">Pending sync</span>
+              </p>
+            </div>
+          )}
+        </form>
+
+        {/* Undo toast */}
+        {showUndo && (
+          <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-white text-gray-900 px-6 py-4 rounded-lg shadow-lg flex items-center gap-4 z-50 border border-gray-200">
+            <p className="font-medium">Request saved</p>
+            <button
+              onClick={handleUndo}
+              className="px-4 py-2 bg-gray-900 text-white font-medium rounded hover:bg-gray-800 transition-colors"
+            >
+              Undo
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

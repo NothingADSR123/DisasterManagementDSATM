@@ -58,3 +58,24 @@
 .animate-fade-in {
   animation: fade-in 0.3s ease-out forwards;
 }
+
+/* SOS Glow Animation */
+.sos-glow {
+  animation: sosPulse 1s ease-in-out infinite;
+  box-shadow: 0 0 12px rgba(255,0,0,0.8), 0 0 24px rgba(255,50,50,0.6);
+}
+
+@keyframes sosPulse {
+  0% {
+    transform: translateY(0) scale(1);
+    box-shadow: 0 0 6px rgba(255,0,0,0.6), 0 0 12px rgba(255,50,50,0.4);
+  }
+  50% {
+    transform: translateY(-2px) scale(1.02);
+    box-shadow: 0 0 18px rgba(255,0,0,0.95), 0 0 32px rgba(255,50,50,0.7);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    box-shadow: 0 0 6px rgba(255,0,0,0.6), 0 0 12px rgba(255,50,50,0.4);
+  }
+}

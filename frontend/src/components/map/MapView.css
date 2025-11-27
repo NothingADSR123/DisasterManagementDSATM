@@ -3,8 +3,34 @@
 .map-view-container {
   position: relative;
   width: 100%;
-  height: 100vh;
+  height: 100%;
   overflow: hidden;
+}
+
+/* Ensure map fills container properly */
+#map-container {
+  height: calc(100vh - 120px);
+  min-height: 360px;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Leaflet container z-index */
+.leaflet-container {
+  z-index: 500 !important;
+  width: 100%;
+  height: 100%;
+}
+
+/* Ensure controls are visible */
+.leaflet-control-zoom {
+  z-index: 800 !important;
+}
+
+.leaflet-control-attribution {
+  z-index: 800 !important;
 }
 
 /* Offline Indicator */
@@ -134,24 +160,58 @@
 
 /* Routing Machine Styling */
 .leaflet-routing-container {
-  background-color: white;
+  background-color: white !important;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   max-width: 300px;
+  color: #000 !important;
 }
 
 .leaflet-routing-container h2,
 .leaflet-routing-container h3 {
   font-size: 14px;
   font-weight: 600;
+  color: #000 !important;
 }
 
 .leaflet-routing-alt {
   padding: 8px;
+  background-color: white !important;
+  color: #000 !important;
+}
+
+.leaflet-routing-alt table {
+  color: #000 !important;
+}
+
+.leaflet-routing-alt td,
+.leaflet-routing-alt th,
+.leaflet-routing-alt tr {
+  color: #000 !important;
+}
+
+.leaflet-routing-alt h3 {
+  color: #000 !important;
+  font-weight: bold !important;
+}
+
+.leaflet-routing-geocoders,
+.leaflet-routing-geocoder,
+.leaflet-routing-error {
+  color: #000 !important;
+}
+
+.leaflet-routing-alternatives-container {
+  background: white !important;
+  color: #000 !important;
 }
 
 /* Responsive Design */
 @media (max-width: 768px) {
+  #map-container {
+    height: calc(100vh - 100px);
+  }
+
   .offline-indicator {
     font-size: 12px;
     padding: 6px 12px;
@@ -174,6 +234,11 @@
 
   .leaflet-popup-content {
     margin: 8px;
+  }
+
+  .leaflet-control-zoom {
+    margin-top: 10px !important;
+    margin-right: 10px !important;
   }
 }
 
