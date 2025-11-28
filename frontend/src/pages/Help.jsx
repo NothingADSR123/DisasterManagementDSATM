@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { add, remove } from '../lib/idb';
 import * as offlineQueue from '../lib/offlineQueue';
 
@@ -27,6 +28,7 @@ const computeHash = async (data) => {
 };
 
 function Help() {
+  const navigate = useNavigate();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [location, setLocation] = useState(null);
@@ -41,6 +43,21 @@ function Help() {
   const [undoTimeout, setUndoTimeout] = useState(null);
 
   useEffect(() => {
+    // Restore form data if returning from map
+    const savedData = sessionStorage.getItem('helpFormData');
+    if (savedData) {
+      try {
+        const data = JSON.parse(savedData);
+        setName(data.name || '');
+        setPhone(data.phone || '');
+        setDescription(data.description || '');
+        setUrgency(data.urgency || 'Medium');
+        sessionStorage.removeItem('helpFormData');
+      } catch (err) {
+        console.error('Error restoring form data:', err);
+      }
+    }
+
     // Listen for map location picked
     const handleLocationPicked = (event) => {
       const { lat, lng, address: addr } = event.detail;
@@ -82,9 +99,23 @@ function Help() {
   };
 
   const handlePickOnMap = () => {
-    window.dispatchEvent(new CustomEvent('map:pick-location', {
-      detail: { mode: 'for-request' }
+    // Store current form data in sessionStorage
+    sessionStorage.setItem('helpFormData', JSON.stringify({
+      name,
+      phone,
+      description,
+      urgency
     }));
+    
+    // Navigate to map in location picking mode
+    navigate('/map?mode=pick-location');
+    
+    // Dispatch event for map to enter picking mode
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('map:pick-location', {
+        detail: { mode: 'for-request' }
+      }));
+    }, 100);
   };
 
   const handleSubmit = async (e) => {

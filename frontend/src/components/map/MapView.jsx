@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, memo } from 'react';
 import { MapContainer, TileLayer, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -10,7 +10,7 @@ import HeatmapLayer from './HeatmapLayer';
 import RoutingControl from './RoutingControl';
 
 // Import utilities
-import { getAll, subscribe, add, STORES } from '../../lib/idb';
+import { getAll, subscribe, add, update, STORES } from '../../lib/idb';
 import { offlineQueue } from '../../lib/offlineQueue';
 import { seedMapFixtures } from '../../lib/fixtures/mapFixtures';
 
@@ -37,11 +37,19 @@ function MapClickHandler({ onMapClick }) {
   return null;
 }
 
+// Dummy safe zones for testing (defined outside component to prevent re-creation)
+// In production, load from IndexedDB or API
+const SAFE_ZONES = [
+  { id: 'sz1', name: 'Park Safe Zone', lat: 12.9716, lng: 77.5946, radius: 500, description: 'Open park area' },
+  { id: 'sz2', name: 'Stadium Safe Zone', lat: 12.9352, lng: 77.6245, radius: 800, description: 'Sports complex' },
+  { id: 'sz3', name: 'School Safe Zone', lat: 12.9800, lng: 77.6000, radius: 400, description: 'School ground' }
+];
+
 /**
  * MapView Component
  * Main map component with offline support and real-time data
  */
-export default function MapView({ filters = { showShelters: true, intensity: 50 }, mapKey = 0 }) {
+function MapView({ filters = { showShelters: true, intensity: 50 }, mapKey = 0 }) {
   // State
   const [helpRequests, setHelpRequests] = useState([]);
   const [volunteers, setVolunteers] = useState([]);
@@ -51,12 +59,15 @@ export default function MapView({ filters = { showShelters: true, intensity: 50 
   const [showRouting, setShowRouting] = useState(false);
   const [routeFrom, setRouteFrom] = useState(null);
   const [routeTo, setRouteTo] = useState(null);
+  const [isPickingLocation, setIsPickingLocation] = useState(false);
+  const [pickedLocation, setPickedLocation] = useState(null);
 
   // Refs
   const mapRef = useRef(null);
   const helpMarkersRef = useRef([]);
   const volunteerMarkersRef = useRef([]);
   const heatmapLayerRef = useRef(null);
+  const safeZoneLayersRef = useRef([]);
 
   // Default map center (you can change this to your disaster area coordinates)
   const DEFAULT_CENTER = [12.9716, 77.5946]; // Bangalore, India - CHANGE THIS as needed
@@ -211,17 +222,23 @@ export default function MapView({ filters = { showShelters: true, intensity: 50 
         // Use current location or map center as starting point
         navigator.geolocation.getCurrentPosition(
           (position) => {
-            setRouteFrom([position.coords.latitude, position.coords.longitude]);
+            const currentPos = [position.coords.latitude, position.coords.longitude];
+            console.log('[MapView] Got current position:', currentPos);
+            setRouteFrom(currentPos);
             setRouteTo(to);
             setShowRouting(true);
           },
           (error) => {
             console.error('Error getting location:', error);
             // Fallback to map center
-            setRouteFrom(DEFAULT_CENTER);
+            console.log('[MapView] Using map center as fallback');
+            const center = mapRef.current ? mapRef.current.getCenter() : null;
+            const fallbackPos = center ? [center.lat, center.lng] : DEFAULT_CENTER;
+            setRouteFrom(fallbackPos);
             setRouteTo(to);
             setShowRouting(true);
-          }
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
         );
       }
     };
@@ -285,7 +302,29 @@ export default function MapView({ filters = { showShelters: true, intensity: 50 
         if (btn) {
           btn.onclick = async () => {
             try {
-              await offlineQueue.add({ type: 'accept', id: request.id });
+              const volunteerId = localStorage.getItem('volunteerId') || 'unknown-volunteer';
+
+              // Update request locally: set status, acceptedBy and append history
+              const updatedRequest = {
+                ...request,
+                status: 'assigned',
+                acceptedBy: volunteerId,
+                history: [
+                  ...(request.history || []),
+                  { status: 'assigned', by: volunteerId, at: Date.now() }
+                ]
+              };
+
+              // Persist update to IndexedDB so UI reflects immediately
+              await update(STORES.HELP_REQUESTS, updatedRequest);
+
+              // Queue server sync (offlineQueue expects an action object)
+              await offlineQueue.add({
+                type: 'UPDATE_REQUEST',
+                endpoint: `/api/requests/${request.id}`,
+                payload: { status: 'assigned', acceptedBy: volunteerId, history: updatedRequest.history }
+              });
+
               btn.textContent = 'Queued!';
               btn.style.backgroundColor = '#6b7280';
               btn.disabled = true;
@@ -330,8 +369,14 @@ export default function MapView({ filters = { showShelters: true, intensity: 50 
       popupAnchor: [0, -16]
     });
 
-    // Create markers
-    const markers = volunteers.map(volunteer => {
+    // Filter volunteers that have valid coordinates and create markers
+    const volunteersWithCoords = volunteers.filter(volunteer => {
+      const lat = volunteer.lat || volunteer.latitude;
+      const lng = volunteer.lng || volunteer.longitude;
+      return lat !== undefined && lng !== undefined && lat !== null && lng !== null && !isNaN(lat) && !isNaN(lng);
+    });
+
+    const markers = volunteersWithCoords.map(volunteer => {
       const marker = L.marker(
         [volunteer.lat || volunteer.latitude, volunteer.lng || volunteer.longitude],
         { icon: canHelpIcon }
@@ -344,7 +389,7 @@ export default function MapView({ filters = { showShelters: true, intensity: 50 
           ${volunteer.skills ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Skills:</strong> ${volunteer.skills}</p>` : ''}
           ${volunteer.contact ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Contact:</strong> ${volunteer.contact}</p>` : ''}
           <button 
-            onclick="window.dispatchEvent(new CustomEvent('webrtc:connect', { detail: { id: ${volunteer.id} } }))"
+            onclick="window.dispatchEvent(new CustomEvent('webrtc:connect', { detail: { id: ${JSON.stringify(volunteer.id)} } }))"
             style="margin-top: 8px; padding: 6px 12px; background-color: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; width: 100%;"
           >
             Connect (WebRTC)
@@ -366,10 +411,80 @@ export default function MapView({ filters = { showShelters: true, intensity: 50 
   }, [volunteers]);
 
   /**
-   * Handle map click to add help request
+   * Render safe zones when filter is enabled
+   */
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    // Clear existing safe zone layers
+    safeZoneLayersRef.current.forEach(layer => layer.remove());
+    safeZoneLayersRef.current = [];
+
+    // Only render if safe zones filter is enabled
+    if (!filters.safeZones) {
+      return;
+    }
+
+    // Create circle overlays for each safe zone
+    const layers = SAFE_ZONES.map(zone => {
+      // Create circle
+      const circle = L.circle([zone.lat, zone.lng], {
+        color: '#10b981',
+        fillColor: '#10b981',
+        fillOpacity: 0.2,
+        radius: zone.radius,
+        weight: 2
+      });
+
+      // Create marker for the center
+      const markerIcon = L.divIcon({
+        className: 'safe-zone-marker',
+        html: `<div style="background-color: #10b981; width: 28px; height: 28px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center;">
+          <span style="color: white; font-size: 16px;">✓</span>
+        </div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+        popupAnchor: [0, -14]
+      });
+
+      const marker = L.marker([zone.lat, zone.lng], { icon: markerIcon });
+
+      const popupContent = `
+        <div style="min-width: 200px;">
+          <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #10b981;">Safe Zone</h3>
+          <p style="margin: 4px 0; font-size: 14px;"><strong>Name:</strong> ${zone.name}</p>
+          <p style="margin: 4px 0; font-size: 14px;"><strong>Radius:</strong> ${zone.radius}m</p>
+          ${zone.description ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Info:</strong> ${zone.description}</p>` : ''}
+        </div>
+      `;
+
+      marker.bindPopup(popupContent);
+
+      circle.addTo(mapRef.current);
+      marker.addTo(mapRef.current);
+
+      return [circle, marker];
+    }).flat();
+
+    safeZoneLayersRef.current = layers;
+
+    return () => {
+      safeZoneLayersRef.current.forEach(layer => layer.remove());
+      safeZoneLayersRef.current = [];
+    };
+  }, [filters.safeZones]);
+
+  /**
+   * Handle map click to add help request or pick location
    */
   const handleMapClick = async (latlng) => {
-    // Show a prompt dialog to add SOS request
+    // If in location picking mode, set the picked location
+    if (isPickingLocation) {
+      setPickedLocation(latlng);
+      return;
+    }
+
+    // Otherwise, show prompt to add SOS request
     const description = window.prompt(
       `Add SOS Request at this location?\n\nLatitude: ${latlng.lat.toFixed(6)}\nLongitude: ${latlng.lng.toFixed(6)}\n\nDescribe your emergency:`
     );
@@ -422,8 +537,6 @@ export default function MapView({ filters = { showShelters: true, intensity: 50 
     }
   };
 
-  console.log('[MapView] Current routing state:', { showRouting, routeFrom, routeTo });
-
   return (
     <div className={`map-view-container ${isOffline ? 'offline' : ''}`}>
       {/* Offline Indicator */}
@@ -439,7 +552,13 @@ export default function MapView({ filters = { showShelters: true, intensity: 50 
         zoom={DEFAULT_ZOOM}
         style={{ height: '100%', width: '100%' }}
         ref={mapRef}
-        whenCreated={(map) => { mapRef.current = map; }}
+        whenCreated={(map) => { 
+          mapRef.current = map; 
+          // Dispatch event to notify that map is ready
+          window.dispatchEvent(new CustomEvent('map:ready', { 
+            detail: { map } 
+          }));
+        }}
       >
         {/* 
           Tile Layer - OpenStreetMap
@@ -460,7 +579,7 @@ export default function MapView({ filters = { showShelters: true, intensity: 50 
         <MapClickHandler onMapClick={handleMapClick} />
 
         {/* Shelters Component - only show if enabled */}
-        {filters.showShelters && <Shelters />}
+        {filters.showShelters && <Shelters key="shelters-layer" />}
 
         {/* Routing Control */}
         <RoutingControl
@@ -486,6 +605,65 @@ export default function MapView({ filters = { showShelters: true, intensity: 50 
           </button>
         </div>
       )}
+
+      {/* Location Picking Controls */}
+      {isPickingLocation && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-white rounded-lg shadow-xl p-4 z-[1200] border-2 border-blue-500">
+          <div className="text-center mb-3">
+            <p className="font-bold text-lg text-gray-900">Click on the map to pick a location</p>
+            {pickedLocation && (
+              <p className="text-sm text-gray-600 mt-1">
+                Selected: {pickedLocation.lat.toFixed(6)}, {pickedLocation.lng.toFixed(6)}
+              </p>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                if (pickedLocation) {
+                  // Dispatch event with picked location
+                  window.dispatchEvent(new CustomEvent('map:location-picked', {
+                    detail: {
+                      lat: pickedLocation.lat,
+                      lng: pickedLocation.lng,
+                      address: `${pickedLocation.lat.toFixed(6)}, ${pickedLocation.lng.toFixed(6)}`
+                    }
+                  }));
+                  
+                  // Navigate back to help page
+                  window.history.back();
+                } else {
+                  alert('Please click on the map to select a location');
+                }
+              }}
+              disabled={!pickedLocation}
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition"
+            >
+              ✓ Confirm Location
+            </button>
+            <button
+              onClick={() => {
+                setIsPickingLocation(false);
+                setPickedLocation(null);
+                window.history.back();
+              }}
+              className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-400 transition"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+// Export memoized version to prevent unnecessary re-renders
+export default memo(MapView, (prevProps, nextProps) => {
+  // Only re-render if filters.safeZones or filters.showShelters actually changed
+  return (
+    prevProps.filters.safeZones === nextProps.filters.safeZones &&
+    prevProps.filters.showShelters === nextProps.filters.showShelters &&
+    prevProps.mapKey === nextProps.mapKey
+  );
+});

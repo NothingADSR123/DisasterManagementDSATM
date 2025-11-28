@@ -112,7 +112,7 @@ function Home() {
   }, [navigate]);
 
   // Handle SOS activation
-  const handleSOS = () => {
+  const handleSOS = async () => {
     if (sosActive) return; // Prevent multiple triggers
 
     // Activate glow
@@ -121,7 +121,51 @@ function Home() {
 
     // Vibrate if available
     if (navigator.vibrate) {
-      navigator.vibrate(200);
+      navigator.vibrate([200, 100, 200]);
+    }
+
+    // Get location and send immediate SOS
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          try {
+            const { add } = await import('../lib/idb');
+            const sosRequest = {
+              id: `sos-${Date.now()}`,
+              type: 'SOS',
+              severity: 'High',
+              priority: 'urgent',
+              lat: position.coords.latitude,
+              lng: position.coords.longitude,
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              description: 'Emergency SOS - Immediate assistance needed',
+              status: 'pending',
+              timestamp: Date.now(),
+              createdAt: Date.now()
+            };
+            
+            // Save to IndexedDB
+            await add('requests', sosRequest);
+            
+            // Add to map
+            window.dispatchEvent(new CustomEvent('map:add-request-marker', {
+              detail: sosRequest
+            }));
+            
+            console.log('SOS alert sent:', sosRequest);
+          } catch (error) {
+            console.error('Error sending SOS:', error);
+          }
+        },
+        (error) => {
+          console.error('Location error for SOS:', error);
+          alert('Could not get your location for SOS. Please enable location services.');
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    } else {
+      alert('Geolocation not available. SOS requires location access.');
     }
 
     // Dispatch SOS event
@@ -142,15 +186,15 @@ function Home() {
 
   // Action card handlers
   const handleGetHelp = () => {
-    window.dispatchEvent(new CustomEvent('ui:get-help'));
+    navigate('/help');
   };
 
   const handleVolunteer = () => {
-    window.dispatchEvent(new CustomEvent('ui:volunteer'));
+    navigate('/volunteer');
   };
 
   const handleMapOpen = () => {
-    window.dispatchEvent(new CustomEvent('map:open'));
+    navigate('/map');
   };
 
   // Compute stats
@@ -383,6 +427,104 @@ function Home() {
           >
             View Map
           </button>
+        </div>
+      </section>
+
+      {/* Notifications Section */}
+      <section className="mb-12">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Recent Notifications</h2>
+        <div className="bg-white rounded-lg shadow-md overflow-hidden">
+          <div className="divide-y divide-gray-200">
+            {/* Dummy Notification 1 - SOS Accepted */}
+            <div className="p-4 hover:bg-gray-50 transition">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                    <svg className="w-6 h-6 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                </div>
+                <div className="ml-3 flex-1">
+                  <p className="text-sm font-medium text-gray-900">Help Request Accepted</p>
+                  <p className="text-sm text-gray-600 mt-1">Volunteer John Doe accepted your medical assistance request</p>
+                  <p className="text-xs text-gray-500 mt-1">2 minutes ago</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Dummy Notification 2 - Request Completed */}
+            <div className="p-4 hover:bg-gray-50 transition">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                    <svg className="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                </div>
+                <div className="ml-3 flex-1">
+                  <p className="text-sm font-medium text-gray-900">Request Completed</p>
+                  <p className="text-sm text-gray-600 mt-1">Your food assistance request has been resolved</p>
+                  <p className="text-xs text-gray-500 mt-1">15 minutes ago</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Dummy Notification 3 - Evacuation Alert */}
+            <div className="p-4 hover:bg-gray-50 transition">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
+                    <svg className="w-6 h-6 text-orange-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                </div>
+                <div className="ml-3 flex-1">
+                  <p className="text-sm font-medium text-gray-900">Evacuation Alert</p>
+                  <p className="text-sm text-gray-600 mt-1">Move to safe zone within 2km radius immediately</p>
+                  <p className="text-xs text-gray-500 mt-1">1 hour ago</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Dummy Notification 4 - Request Cancelled */}
+            <div className="p-4 hover:bg-gray-50 transition">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                    <svg className="w-6 h-6 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                </div>
+                <div className="ml-3 flex-1">
+                  <p className="text-sm font-medium text-gray-900">Request Cancelled</p>
+                  <p className="text-sm text-gray-600 mt-1">Shelter request was cancelled by the requester</p>
+                  <p className="text-xs text-gray-500 mt-1">3 hours ago</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Dummy Notification 5 - New Volunteer Nearby */}
+            <div className="p-4 hover:bg-gray-50 transition">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+                    <svg className="w-6 h-6 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
+                    </svg>
+                  </div>
+                </div>
+                <div className="ml-3 flex-1">
+                  <p className="text-sm font-medium text-gray-900">New Volunteer Available</p>
+                  <p className="text-sm text-gray-600 mt-1">A volunteer with medical skills is now nearby</p>
+                  <p className="text-xs text-gray-500 mt-1">5 hours ago</p>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 

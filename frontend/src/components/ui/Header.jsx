@@ -18,7 +18,7 @@ function Header() {
   return (
     <header className="bg-white shadow-md" style={{ borderBottom: '3px solid #415A78' }}>
       <div className="container mx-auto px-4">
-        <div className="flex items-center justify-between h-16">
+        <div className="flex items-center justify-around h-16">
           {/* Logo */}
           <Link to="/" className="text-xl font-bold hover:opacity-80 transition-opacity" style={{ color: '#415A78' }}>
             DisasterManagement
