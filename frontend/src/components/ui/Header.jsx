@@ -20,8 +20,13 @@ function Header() {
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-around h-16">
           {/* Logo */}
-          <Link to="/" className="text-xl font-bold hover:opacity-80 transition-opacity" style={{ color: '#415A78' }}>
-            DisasterManagement
+          <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+            <img 
+              src="/logo.png" 
+              alt="Disaster Management Logo" 
+              className="h-16 w-auto"
+            />
+            <span className="text-2xl font-bold" style={{ color: '#415A78' }}>Trivya</span>
           </Link>
 
           {/* Desktop Navigation */}

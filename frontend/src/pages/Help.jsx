@@ -141,19 +141,26 @@ function Help() {
 
       const request = {
         id,
-        type: 'need',
-        name: name.trim(),
+        type: 'SOS',
+        severity: urgency === 'High' ? 'High' : urgency === 'Medium' ? 'Medium' : 'Low',
+        priority: urgency === 'High' ? 'urgent' : 'normal',
+        name: name.trim() || 'Anonymous',
         phone: phone.trim(),
-        description: description.trim(),
+        description: description.trim() || 'Emergency help needed',
         urgency,
+        lat: location.lat,
+        lng: location.lng,
+        latitude: location.lat,
+        longitude: location.lng,
         location: {
           lat: location.lat,
           lng: location.lng
         },
         address,
-        status: 'open',
+        status: 'pending',
         createdAt: now,
         updatedAt: now,
+        timestamp: now,
         source: 'local',
         pendingSync: true
       };
@@ -180,12 +187,7 @@ function Help() {
       }));
 
       window.dispatchEvent(new CustomEvent('map:add-request-marker', {
-        detail: {
-          id,
-          lat: location.lat,
-          lng: location.lng,
-          type: 'request'
-        }
+        detail: request
       }));
 
       // Show undo toast

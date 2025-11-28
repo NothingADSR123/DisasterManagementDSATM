@@ -21,12 +21,18 @@ import { useNavigate } from 'react-router-dom';
 // Constants
 const SOS_GLOW_MS = 6000;
 const SOS_TOAST_MS = 3000;
+const SOS_UNDO_COUNTDOWN = 5; // 5 seconds to undo
 
 function Home() {
   const navigate = useNavigate();
   const mapInstanceRef = useRef(null);
   const [sosActive, setSosActive] = useState(false);
   const [showSosToast, setShowSosToast] = useState(false);
+  const [showUndoDialog, setShowUndoDialog] = useState(false);
+  const [undoCountdown, setUndoCountdown] = useState(SOS_UNDO_COUNTDOWN);
+  const sosRequestIdRef = useRef(null);
+  const undoTimerRef = useRef(null);
+  const countdownIntervalRef = useRef(null);
   
   // Info tile data
   const [evacuations, setEvacuations] = useState([]);
@@ -108,6 +114,10 @@ function Home() {
       window.removeEventListener('ui:show-help-modal', handleGetHelpNav);
       window.removeEventListener('ui:show-volunteer-modal', handleVolunteerNav);
       window.removeEventListener('map:show', handleMapOpenNav);
+      
+      // Clear any active timers
+      if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
     };
   }, [navigate]);
 
@@ -118,13 +128,15 @@ function Home() {
     // Activate glow
     setSosActive(true);
     setShowSosToast(true);
+    setShowUndoDialog(true);
+    setUndoCountdown(SOS_UNDO_COUNTDOWN);
 
     // Vibrate if available
     if (navigator.vibrate) {
       navigator.vibrate([200, 100, 200]);
     }
 
-    // Get location and send immediate SOS
+    // Get location and prepare SOS (but don't send yet)
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         async (position) => {
@@ -145,33 +157,61 @@ function Home() {
               createdAt: Date.now()
             };
             
-            // Save to IndexedDB
-            await add('requests', sosRequest);
+            // Store request ID for potential undo
+            sosRequestIdRef.current = sosRequest.id;
             
-            // Add to map
-            window.dispatchEvent(new CustomEvent('map:add-request-marker', {
-              detail: sosRequest
-            }));
+            // Start countdown
+            let countdown = SOS_UNDO_COUNTDOWN;
+            countdownIntervalRef.current = setInterval(() => {
+              countdown--;
+              setUndoCountdown(countdown);
+              
+              if (countdown <= 0) {
+                clearInterval(countdownIntervalRef.current);
+              }
+            }, 1000);
             
-            console.log('SOS alert sent:', sosRequest);
+            // Set timer to actually send SOS after countdown
+            undoTimerRef.current = setTimeout(async () => {
+              // Save to IndexedDB
+              await add('requests', sosRequest);
+              
+              // Add to map
+              window.dispatchEvent(new CustomEvent('map:add-request-marker', {
+                detail: sosRequest
+              }));
+              
+              // Dispatch SOS event
+              window.dispatchEvent(new CustomEvent('action:sos', {
+                detail: { source: 'ui', ts: Date.now() }
+              }));
+              
+              console.log('SOS alert sent:', sosRequest);
+              
+              // Hide undo dialog
+              setShowUndoDialog(false);
+              sosRequestIdRef.current = null;
+            }, SOS_UNDO_COUNTDOWN * 1000);
+            
           } catch (error) {
-            console.error('Error sending SOS:', error);
+            console.error('Error preparing SOS:', error);
+            setShowUndoDialog(false);
+            setSosActive(false);
           }
         },
         (error) => {
           console.error('Location error for SOS:', error);
           alert('Could not get your location for SOS. Please enable location services.');
+          setShowUndoDialog(false);
+          setSosActive(false);
         },
         { enableHighAccuracy: true, timeout: 10000 }
       );
     } else {
       alert('Geolocation not available. SOS requires location access.');
+      setShowUndoDialog(false);
+      setSosActive(false);
     }
-
-    // Dispatch SOS event
-    window.dispatchEvent(new CustomEvent('action:sos', {
-      detail: { source: 'ui', ts: Date.now() }
-    }));
 
     // Hide toast after 3s
     setTimeout(() => {
@@ -182,6 +222,27 @@ function Home() {
     setTimeout(() => {
       setSosActive(false);
     }, SOS_GLOW_MS);
+  };
+  
+  // Handle SOS undo
+  const handleUndoSOS = () => {
+    // Clear timers
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    
+    // Reset state
+    setShowUndoDialog(false);
+    setShowSosToast(false);
+    setSosActive(false);
+    sosRequestIdRef.current = null;
+    
+    console.log('SOS cancelled by user');
   };
 
   // Action card handlers
@@ -224,20 +285,78 @@ function Home() {
         opacity: 0.98
       }}
     >
-      <div className="container mx-auto px-4 py-8">
+      {/* SOS Undo Dialog */}
+      {showUndoDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full p-6 animate-pulse">
+            <div className="text-center">
+              <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-red-100 mb-4">
+                <svg className="h-10 w-10 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                SOS Alert Sending
+              </h3>
+              
+              <p className="text-gray-600 mb-4">
+                Emergency alert will be sent in
+              </p>
+              
+              <div className="text-6xl font-bold text-red-600 mb-6">
+                {undoCountdown}
+              </div>
+              
+              <p className="text-sm text-gray-500 mb-6">
+                Pressed by mistake? You can cancel now.
+              </p>
+              
+              <button
+                onClick={handleUndoSOS}
+                className="w-full bg-gray-600 text-white px-6 py-3 rounded-lg text-lg font-bold hover:bg-gray-700 transition-all focus:outline-none focus:ring-4 focus:ring-gray-500 focus:ring-offset-2"
+              >
+                UNDO - Cancel SOS
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      <div className="container mx-auto px-4 -mt-12">
         {/* Hero Section */}
-        <section className="text-center mb-12">
-        <h1 className="text-4xl font-bold text-gray-900 mb-4">
-          Disaster Management System
-        </h1>
-        <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-          Connect those who need help with volunteers during emergencies. 
-          Our platform works online and offline to ensure you're never alone in a crisis.
-        </p>
+        <section className="mb-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+          {/* Left Side - Logo and Tagline */}
+          <div>
+            <div className="-mb-14">
+              <img 
+                src="/logotext.png" 
+                alt="Disaster Management System" 
+                className="h-56 md:h-72 lg:h-96 w-auto max-w-full"
+              />
+            </div>
+            <p className="text-3xl md:text-4xl text-gray-800 mb-4" style={{ fontFamily: "'Bodoni Moda', 'Libre Baskerville', serif", letterSpacing: '0.03em', fontWeight: '400', fontStyle: 'italic', textShadow: '2px 2px 4px rgba(0,0,0,0.1)' }}>
+              Your shield against disaster.
+            </p>
+          </div>
+          
+          {/* Right Side - Description */}
+          <div className="flex items-center justify-start h-full pl-8">
+            <div className="max-w-lg">
+              <p className="text-2xl md:text-3xl text-gray-800 font-medium leading-relaxed mb-2">
+                Connect those who need help with volunteers during emergencies.
+              </p>
+              <p className="text-xl md:text-2xl text-gray-600 font-light leading-relaxed">
+                Our platform works online and offline to ensure you're never alone in a crisis.
+              </p>
+            </div>
+          </div>
+        </div>
       </section>
 
       {/* 4 Action Cards */}
-      <section className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
+      <section className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-4 mt-4">
         {/* Card 1: I Need Help */}
         <div 
           className="bg-white border-4 rounded-2xl p-6 flex flex-col items-center justify-between min-h-[220px] md:min-h-[240px] hover:shadow-2xl transition-all"

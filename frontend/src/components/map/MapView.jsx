@@ -249,6 +249,33 @@ function MapView({ filters = { showShelters: true, intensity: 50 }, mapKey = 0 }
       window.removeEventListener('map:route', handleRouteRequest);
     };
   }, []);
+  
+  /**
+   * Listen for new request markers to be added dynamically
+   */
+  useEffect(() => {
+    const handleAddRequestMarker = async (event) => {
+      const request = event.detail;
+      console.log('[MapView] Adding new request marker:', request);
+      
+      // Add to helpRequests state to trigger marker rendering
+      setHelpRequests(prev => [...prev, request]);
+      
+      // Also save to IndexedDB if not already there
+      try {
+        const { add } = await import('../../lib/idb');
+        await add('requests', request);
+      } catch (error) {
+        console.error('Error saving request to IndexedDB:', error);
+      }
+    };
+    
+    window.addEventListener('map:add-request-marker', handleAddRequestMarker);
+    
+    return () => {
+      window.removeEventListener('map:add-request-marker', handleAddRequestMarker);
+    };
+  }, []);
 
   /**
    * Render markers for help requests
