@@ -417,15 +417,11 @@ function MapPage() {
                       <span className="text-xs text-gray-600">Safe Zone</span>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <div className="w-4 h-4 bg-blue-500 rounded"></div>
-                      <span className="text-xs text-gray-600">Shelter</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
                       <div className="w-4 h-4 bg-red-500 rounded"></div>
                       <span className="text-xs text-gray-600">Help Request</span>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <div className="w-4 h-4 bg-purple-500 rounded"></div>
+                      <div className="w-4 h-4 bg-blue-500 rounded"></div>
                       <span className="text-xs text-gray-600">Volunteer</span>
                     </div>
                   </div>

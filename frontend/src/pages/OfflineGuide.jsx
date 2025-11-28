@@ -1,155 +1,176 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
+import { getAll } from '../lib/idb';
+import { getCacheStats } from '../lib/mapDownloader';
 
 function OfflineGuide() {
-  const [isOfflineMode, setIsOfflineMode] = useState(false);
+  const navigate = useNavigate();
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [queueCount, setQueueCount] = useState(0);
+  const [cacheStats, setCacheStats] = useState(null);
+  const [serviceWorkerReady, setServiceWorkerReady] = useState(false);
 
-  const toggleOfflineMode = () => {
-    setIsOfflineMode(!isOfflineMode);
-    if (!isOfflineMode) {
-      console.log('Simulating offline mode');
-    } else {
-      console.log('Returning to online mode');
+  useEffect(() => {
+    // Check online status
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Load offline queue count
+    loadQueueCount();
+    
+    // Load cache stats
+    loadCacheStats();
+
+    // Check service worker status
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.ready.then(() => {
+        setServiceWorkerReady(true);
+      });
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  const loadQueueCount = async () => {
+    try {
+      const queue = await getAll('offlineQueue');
+      setQueueCount(queue?.length || 0);
+    } catch (error) {
+      console.error('Failed to load queue:', error);
     }
   };
 
-  const emergencyItems = [
-    { category: 'First Aid', items: ['Bandages', 'Antiseptic', 'Pain relievers', 'Gauze', 'Medical tape'] },
-    { category: 'Food & Water', items: ['Bottled water (3-day supply)', 'Non-perishable food', 'Can opener', 'Energy bars'] },
-    { category: 'Communication', items: ['Battery-powered radio', 'Flashlight', 'Extra batteries', 'Phone charger/power bank'] },
-    { category: 'Documents', items: ['ID copies', 'Insurance papers', 'Emergency contacts list', 'Medical records'] },
-    { category: 'Tools & Supplies', items: ['Multi-tool', 'Duct tape', 'Whistle', 'Local maps', 'Waterproof matches'] },
-    { category: 'Personal Items', items: ['Medications', 'Glasses/contacts', 'Hygiene items', 'Warm clothing', 'Blankets'] },
-  ];
+  const loadCacheStats = async () => {
+    try {
+      const stats = await getCacheStats();
+      setCacheStats(stats);
+    } catch (error) {
+      console.error('Failed to load cache stats:', error);
+    }
+  };
 
-  const offlineTips = [
+
+  const offlineFeatures = [
     {
       title: 'Forms Work Offline',
-      description: 'All help request and volunteer forms can be filled out without internet. They will sync automatically when you reconnect.',
+      description: 'Submit help requests and volunteer offers without internet. They sync automatically when you reconnect.',
       icon: '📝',
+      color: 'blue',
     },
     {
-      title: 'Cached Resources',
-      description: 'Essential pages and resources are cached for offline access. Maps require initial loading but can work offline afterward.',
-      icon: '💾',
-    },
-    {
-      title: 'Location Services',
-      description: 'GPS works without internet. Your location can still be determined and saved with offline forms.',
+      title: 'GPS Location',
+      description: 'Your device GPS works without internet. Location can be captured and saved with offline forms.',
       icon: '📍',
+      color: 'green',
     },
     {
-      title: 'Data Sync',
-      description: 'All offline actions are queued and will automatically sync when connection is restored. You\'ll see a sync status indicator.',
+      title: 'Cached Maps',
+      description: 'Download map tiles in advance. View maps and navigate even when offline.',
+      icon: '🗺️',
+      color: 'purple',
+    },
+    {
+      title: 'Auto-Sync',
+      description: 'All offline actions are queued and sync automatically when connection is restored.',
       icon: '🔄',
+      color: 'orange',
     },
   ];
 
-  const pwaInstructions = [
-    {
-      platform: 'Android (Chrome)',
-      steps: [
-        'Open the app in Chrome browser',
-        'Tap the menu (three dots) in the top right',
-        'Select "Add to Home screen" or "Install app"',
-        'Follow the prompts to complete installation',
-        'Launch from your home screen like any other app',
-      ],
-    },
-    {
-      platform: 'iOS (Safari)',
-      steps: [
-        'Open the app in Safari browser',
-        'Tap the Share button (square with arrow)',
-        'Scroll down and tap "Add to Home Screen"',
-        'Name the app and tap "Add"',
-        'Access from your home screen',
-      ],
-    },
-    {
-      platform: 'Desktop (Chrome/Edge)',
-      steps: [
-        'Open the app in Chrome or Edge',
-        'Look for the install icon in the address bar',
-        'Click "Install" or "Add"',
-        'The app will open in its own window',
-        'Access from your apps menu or desktop',
-      ],
-    },
+  const emergencyContacts = [
+    { name: 'Emergency Services', number: '112 / 911', icon: '🚨' },
+    { name: 'Police', number: '100', icon: '👮' },
+    { name: 'Fire Brigade', number: '101', icon: '🚒' },
+    { name: 'Ambulance', number: '102', icon: '🚑' },
+    { name: 'Disaster Helpline', number: '1078', icon: '📞' },
   ];
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
-      {/* Offline Mode Banner */}
-      {isOfflineMode && (
-        <div className="mb-6 bg-orange-100 border-l-4 border-orange-500 p-4 rounded">
-          <div className="flex items-center">
-            <svg
-              className="w-6 h-6 text-orange-500 mr-3"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-              />
-            </svg>
-            <div className="flex-1">
-              <p className="font-semibold text-orange-800">Offline Mode Simulation Active</p>
-              <p className="text-sm text-orange-700">This is a UI simulation. No network calls are being made.</p>
-            </div>
+      {/* Connection Status Banner */}
+      <div className={`mb-6 ${isOnline ? 'bg-green-100 border-green-500' : 'bg-orange-100 border-orange-500'} border-l-4 p-4 rounded`}>
+        <div className="flex items-center">
+          <div className={`w-3 h-3 rounded-full ${isOnline ? 'bg-green-500' : 'bg-orange-500'} mr-3 animate-pulse`}></div>
+          <div className="flex-1">
+            <p className={`font-semibold ${isOnline ? 'text-green-800' : 'text-orange-800'}`}>
+              {isOnline ? '🟢 Online - All features available' : '🟠 Offline Mode - Limited connectivity'}
+            </p>
+            <p className={`text-sm ${isOnline ? 'text-green-700' : 'text-orange-700'}`}>
+              {isOnline ? 'You can access all app features and sync data.' : 'Core features still work. Data will sync when connection is restored.'}
+            </p>
           </div>
         </div>
-      )}
+      </div>
 
       {/* Page Header */}
       <section className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-4">Offline Guide</h1>
         <p className="text-lg text-gray-600">
-          Learn how to use this app during emergencies when internet connectivity is limited or unavailable.
+          Essential information for using this app during emergencies when internet is unavailable.
         </p>
       </section>
 
-      {/* Test Offline Mode */}
-      <section className="mb-12">
-        <Card>
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">Test Offline Mode</h3>
-              <p className="text-gray-600">
-                Simulate offline functionality to see how the app behaves without internet
+      {/* App Status */}
+      <section className="mb-8">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">App Status</h2>
+        <div className="grid md:grid-cols-3 gap-4">
+          <Card>
+            <div className="text-center">
+              <div className={`text-3xl mb-2 ${serviceWorkerReady ? 'text-green-500' : 'text-gray-400'}`}>
+                {serviceWorkerReady ? '✅' : '⏳'}
+              </div>
+              <h3 className="font-semibold text-gray-900">Offline Ready</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                {serviceWorkerReady ? 'App is cached' : 'Loading...'}
               </p>
             </div>
-            <Button
-              variant={isOfflineMode ? 'secondary' : 'primary'}
-              onClick={toggleOfflineMode}
-            >
-              {isOfflineMode ? 'Go Online' : 'Go Offline'}
-            </Button>
-          </div>
-        </Card>
+          </Card>
+
+          <Card>
+            <div className="text-center">
+              <div className="text-3xl mb-2 text-blue-500">📦</div>
+              <h3 className="font-semibold text-gray-900">Pending Sync</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                {queueCount} {queueCount === 1 ? 'item' : 'items'} queued
+              </p>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="text-center">
+              <div className="text-3xl mb-2 text-purple-500">🗺️</div>
+              <h3 className="font-semibold text-gray-900">Map Cache</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                {cacheStats ? `${cacheStats.tileCount} tiles` : 'Not downloaded'}
+              </p>
+            </div>
+          </Card>
+        </div>
       </section>
 
-      {/* Offline Tips */}
-      <section className="mb-12">
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">How Offline Mode Works</h2>
-        <div className="grid md:grid-cols-2 gap-6">
-          {offlineTips.map((tip, index) => (
+      {/* Offline Features */}
+      <section className="mb-8">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">How Offline Mode Works</h2>
+        <div className="grid md:grid-cols-2 gap-4">
+          {offlineFeatures.map((feature, index) => (
             <Card key={index}>
               <div className="flex items-start space-x-4">
-                <span className="text-4xl" role="img" aria-label={tip.title}>
-                  {tip.icon}
+                <span className="text-4xl" role="img" aria-label={feature.title}>
+                  {feature.icon}
                 </span>
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                    {tip.title}
+                    {feature.title}
                   </h3>
-                  <p className="text-gray-600 text-sm">{tip.description}</p>
+                  <p className="text-gray-600 text-sm">{feature.description}</p>
                 </div>
               </div>
             </Card>
@@ -157,65 +178,64 @@ function OfflineGuide() {
         </div>
       </section>
 
-      {/* Emergency Items Checklist */}
-      <section className="mb-12">
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">Emergency Kit Checklist</h2>
+      {/* Quick Actions */}
+      <section className="mb-8">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Quick Actions</h2>
         <Card>
-          <p className="text-gray-600 mb-6">
-            Prepare an emergency kit with these essential items. Keep it in an easily accessible location.
-          </p>
-          <div className="space-y-6">
-            {emergencyItems.map((category, index) => (
-              <div key={index} className="border-l-4 border-blue-500 pl-4">
-                <h3 className="font-semibold text-gray-900 mb-3">{category.category}</h3>
-                <ul className="grid md:grid-cols-2 gap-2">
-                  {category.items.map((item, itemIndex) => (
-                    <li key={itemIndex} className="flex items-center text-sm text-gray-700">
-                      <svg
-                        className="w-4 h-4 text-green-500 mr-2"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                        xmlns="http://www.w3.org/2000/svg"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M5 13l4 4L19 7"
-                        />
-                      </svg>
-                      {item}
-                    </li>
-                  ))}
-                </ul>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-200">
+              <div>
+                <h3 className="font-semibold text-gray-900">Download Maps for Offline Use</h3>
+                <p className="text-sm text-gray-600">Pre-cache map tiles for your area</p>
               </div>
-            ))}
+              <Button onClick={() => navigate('/map')}>
+                Go to Map
+              </Button>
+            </div>
+
+            <div className="flex items-center justify-between pb-4 border-b border-gray-200">
+              <div>
+                <h3 className="font-semibold text-gray-900">Submit Help Request</h3>
+                <p className="text-sm text-gray-600">Works offline - will sync later</p>
+              </div>
+              <Button onClick={() => navigate('/help')}>
+                Request Help
+              </Button>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-gray-900">View Nearby Requests</h3>
+                <p className="text-sm text-gray-600">See who needs help near you</p>
+              </div>
+              <Button onClick={() => navigate('/volunteer')}>
+                Volunteer
+              </Button>
+            </div>
           </div>
         </Card>
       </section>
 
-      {/* PWA Installation Guide */}
-      <section className="mb-12">
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">Install as PWA (Progressive Web App)</h2>
+      {/* Emergency Contacts */}
+      <section className="mb-8">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Emergency Contacts</h2>
         <Card>
-          <p className="text-gray-600 mb-6">
-            Installing this app on your device provides the best offline experience and faster access during emergencies.
+          <p className="text-gray-600 mb-4 text-sm">
+            These numbers work even without internet. Save them in your phone.
           </p>
-          <div className="space-y-8">
-            {pwaInstructions.map((platform, index) => (
-              <div key={index}>
-                <h3 className="font-semibold text-gray-900 mb-3 text-lg">{platform.platform}</h3>
-                <ol className="space-y-2">
-                  {platform.steps.map((step, stepIndex) => (
-                    <li key={stepIndex} className="flex items-start text-sm text-gray-700">
-                      <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-600 font-semibold mr-3 flex-shrink-0">
-                        {stepIndex + 1}
-                      </span>
-                      <span className="pt-0.5">{step}</span>
-                    </li>
-                  ))}
-                </ol>
+          <div className="space-y-3">
+            {emergencyContacts.map((contact, index) => (
+              <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center space-x-3">
+                  <span className="text-2xl">{contact.icon}</span>
+                  <span className="font-medium text-gray-900">{contact.name}</span>
+                </div>
+                <a 
+                  href={`tel:${contact.number.replace(/\s/g, '')}`}
+                  className="text-blue-600 font-semibold hover:text-blue-700"
+                >
+                  {contact.number}
+                </a>
               </div>
             ))}
           </div>
@@ -223,37 +243,68 @@ function OfflineGuide() {
       </section>
 
       {/* Best Practices */}
-      <section>
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">Offline Best Practices</h2>
+      <section className="mb-8">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Offline Best Practices</h2>
         <Card>
           <div className="space-y-4">
             <div className="flex items-start space-x-3">
-              <span className="text-2xl">💡</span>
+              <span className="text-2xl">🗺️</span>
               <div>
-                <h4 className="font-semibold text-gray-900">Load Key Pages Before Disaster</h4>
-                <p className="text-sm text-gray-600">Visit important pages while online to cache them for offline use.</p>
+                <h4 className="font-semibold text-gray-900">Download Maps Before Disaster</h4>
+                <p className="text-sm text-gray-600">Visit the Map page and download tiles for your area while online.</p>
               </div>
             </div>
             <div className="flex items-start space-x-3">
               <span className="text-2xl">🔋</span>
               <div>
                 <h4 className="font-semibold text-gray-900">Keep Devices Charged</h4>
-                <p className="text-sm text-gray-600">Maintain battery power and have backup charging options available.</p>
+                <p className="text-sm text-gray-600">Maintain battery power. Have backup charging options (power bank, car charger).</p>
               </div>
             </div>
             <div className="flex items-start space-x-3">
               <span className="text-2xl">📱</span>
               <div>
                 <h4 className="font-semibold text-gray-900">Enable Location Services</h4>
-                <p className="text-sm text-gray-600">GPS works offline and helps volunteers find you even without internet.</p>
+                <p className="text-sm text-gray-600">GPS works offline. It helps volunteers find you even without internet.</p>
+              </div>
+            </div>
+            <div className="flex items-start space-x-3">
+              <span className="text-2xl">📲</span>
+              <div>
+                <h4 className="font-semibold text-gray-900">Install as App</h4>
+                <p className="text-sm text-gray-600">Add to home screen for faster access and better offline performance.</p>
               </div>
             </div>
             <div className="flex items-start space-x-3">
               <span className="text-2xl">⏱️</span>
               <div>
-                <h4 className="font-semibold text-gray-900">Sync When Possible</h4>
-                <p className="text-sm text-gray-600">Check for connection periodically to sync offline submissions.</p>
+                <h4 className="font-semibold text-gray-900">Sync When Connection Available</h4>
+                <p className="text-sm text-gray-600">App automatically syncs offline submissions when internet is restored.</p>
               </div>
+            </div>
+          </div>
+        </Card>
+      </section>
+
+      {/* Installation Guide - Simplified */}
+      <section>
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Install as App (PWA)</h2>
+        <Card>
+          <p className="text-gray-600 mb-4">
+            Installing provides faster access and better offline experience during emergencies.
+          </p>
+          <div className="space-y-3">
+            <div className="p-3 bg-blue-50 rounded-lg">
+              <h3 className="font-semibold text-gray-900 mb-1">📱 Mobile (Chrome/Safari)</h3>
+              <p className="text-sm text-gray-700">
+                Tap menu → "Add to Home Screen" or "Install App"
+              </p>
+            </div>
+            <div className="p-3 bg-purple-50 rounded-lg">
+              <h3 className="font-semibold text-gray-900 mb-1">💻 Desktop (Chrome/Edge)</h3>
+              <p className="text-sm text-gray-700">
+                Look for install icon in address bar → Click "Install"
+              </p>
             </div>
           </div>
         </Card>

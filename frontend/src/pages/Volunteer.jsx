@@ -2,6 +2,63 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAll, subscribe, add } from '../lib/idb';
 
+// Constants for nearby requests
+const MAX_RESULTS = 100; // Show more results
+const URGENCY_WEIGHTS = { U: 0.7, D: 0.3 }; // Urgency vs Distance weights
+
+/**
+ * Compute distance between two coordinates using Haversine formula
+ * @param {Object} a - {lat, lng}
+ * @param {Object} b - {lat, lng}
+ * * @returns {number} Distance in meters
+ */
+function computeDistanceMeters(a, b) {
+  const R = 6371000; // Earth radius in meters
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  
+  const aRad = toRad(a.lat);
+  const bRad = toRad(b.lat);
+  
+  const aa = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(aRad) * Math.cos(bRad) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  
+  const c = 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa));
+  return R * c;
+}
+
+/**
+ * Get urgency rank for scoring
+ */
+function urgencyRank(urgency) {
+  const u = (urgency || 'medium').toLowerCase();
+  if (u === 'high') return 3;
+  if (u === 'medium') return 2;
+  return 1;
+}
+
+/**
+ * Format distance for display
+ */
+function formatDistanceMeters(meters) {
+  if (meters < 1000) return `${Math.round(meters)}m`;
+  return `${(meters / 1000).toFixed(1)}km`;
+}
+
+/**
+ * Format duration for display
+ */
+function formatDurationSeconds(seconds) {
+  const mins = Math.round(seconds / 60);
+  if (mins < 60) return `${mins} min`;
+  const hours = Math.floor(mins / 60);
+  const remainMins = mins % 60;
+  return `${hours}h ${remainMins}m`;
+}
+
 function Volunteer() {
   const [sosCount, setSosCount] = useState(0);
   const [myAcceptedCount, setMyAcceptedCount] = useState(0);
@@ -331,6 +388,80 @@ function Volunteer() {
     }
   };
 
+  /**
+   * Get volunteer location with fallback
+   */
+  const getVolunteerLocationOrPrompt = async () => {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('Geolocation not supported'));
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          });
+        },
+        (error) => {
+          reject(error);
+        },
+        { timeout: 5000, maximumAge: 0, enableHighAccuracy: false }
+      );
+    });
+  };
+
+  /**
+   * Filter and score nearby requests (NO DISTANCE LIMIT - show all requests)
+   */
+  const filterAndScoreNearby = (allRequests, volunteerLocation) => {
+    // Filter for help requests that are not completed/resolved/cancelled
+    const needRequests = allRequests.filter(r => {
+      const validType = r.type === 'need' || r.type === 'SOS' || r.type === 'General';
+      const notCompleted = r.status !== 'completed' && r.status !== 'resolved' && r.status !== 'cancelled';
+      return validType && notCompleted;
+    });
+
+    // Calculate distance for all requests
+    const withDistance = needRequests.map(req => {
+      const reqLoc = {
+        lat: req.lat || req.latitude,
+        lng: req.lng || req.longitude
+      };
+      const distance = computeDistanceMeters(volunteerLocation, reqLoc);
+      return { ...req, distance };
+    });
+
+    if (withDistance.length === 0) return [];
+
+    // Find max distance for normalization
+    const maxDist = Math.max(...withDistance.map(r => r.distance));
+
+    // Score by urgency + distance (closer + more urgent = higher score)
+    const scored = withDistance.map(r => {
+      const urgRank = urgencyRank(r.urgency || r.severity);
+      const normDist = maxDist > 0 ? r.distance / maxDist : 0;
+      const score = urgRank * URGENCY_WEIGHTS.U + (1 - normDist) * URGENCY_WEIGHTS.D;
+      return { ...r, score };
+    });
+
+    // Sort by score descending (most urgent + closest first)
+    scored.sort((a, b) => b.score - a.score);
+
+    return scored.slice(0, MAX_RESULTS);
+  };
+
+  /**
+   * Handle View Nearby Requests button click
+   * Simply navigate to map page - user can manually click on SOS markers
+   */
+  const handleViewNearbyRequests = async () => {
+    // Just navigate to map page
+    navigate('/map');
+  };
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       {/* Page Header */}
@@ -595,12 +726,7 @@ function Volunteer() {
       {/* SECTION B — Active Help Requests */}
       <section className="mt-10">
         <button
-          onClick={() => {
-            navigate('/map');
-            setTimeout(() => {
-              window.dispatchEvent(new CustomEvent('map:nearby-requests'));
-            }, 100);
-          }}
+          onClick={handleViewNearbyRequests}
           className="w-full md:w-auto px-6 py-3 bg-blue-600 text-white rounded-xl shadow hover:bg-blue-700 transition font-semibold"
         >
           📍 View Nearby Requests

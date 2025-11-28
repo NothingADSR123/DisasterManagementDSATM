@@ -13,6 +13,7 @@ import RoutingControl from './RoutingControl';
 import { getAll, subscribe, add, update, STORES } from '../../lib/idb';
 import { offlineQueue } from '../../lib/offlineQueue';
 import { seedMapFixtures } from '../../lib/fixtures/mapFixtures';
+import { computeDistanceMeters, formatDistanceMeters, formatDurationSeconds, showToast, findNearestShelter, performRouteCalculation } from '../../lib/mapHelpers';
 
 // Fix for default marker icons in Leaflet with webpack/vite
 delete L.Icon.Default.prototype._getIconUrl;
@@ -61,6 +62,10 @@ function MapView({ filters = { showShelters: true, intensity: 50 }, mapKey = 0 }
   const [routeTo, setRouteTo] = useState(null);
   const [isPickingLocation, setIsPickingLocation] = useState(false);
   const [pickedLocation, setPickedLocation] = useState(null);
+  const [nearbyMarkersTemp, setNearbyMarkersTemp] = useState(new Map());
+  const [volunteerMarker, setVolunteerMarker] = useState(null);
+  const [currentRouteLayer, setCurrentRouteLayer] = useState(null);
+  const [routeMeta, setRouteMeta] = useState(null);
 
   // Refs
   const mapRef = useRef(null);
@@ -278,6 +283,426 @@ function MapView({ filters = { showShelters: true, intensity: 50 }, mapKey = 0 }
   }, []);
 
   /**
+   * Listen for nearby requests display
+   * Triggered by Volunteer page "View Nearby Requests" button
+   */
+  useEffect(() => {
+    const handleShowNearby = async (event) => {
+      try {
+        const { volunteerLocation, requests } = event.detail;
+        
+        if (!mapRef.current || !requests || requests.length === 0) {
+          return;
+        }
+
+        console.log('[MapView] Showing nearby requests:', requests.length);
+
+        // Clear previous nearby markers
+        nearbyMarkersTemp.forEach(marker => {
+          try {
+            marker.remove();
+          } catch (e) {
+            console.warn('Error removing marker:', e);
+          }
+        });
+        const newMarkers = new Map();
+
+        // Add volunteer location marker (blue)
+        const volIcon = L.divIcon({
+          className: 'volunteer-location-marker',
+          html: `<div style="background-color: #3b82f6; width: 40px; height: 40px; border-radius: 50%; border: 4px solid white; box-shadow: 0 3px 8px rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center;">
+            <span style="color: white; font-size: 20px;">📍</span>
+          </div>`,
+          iconSize: [40, 40],
+          iconAnchor: [20, 20]
+        });
+
+        const volMarker = L.marker([volunteerLocation.lat, volunteerLocation.lng], { icon: volIcon })
+          .bindPopup('<strong>Your Location</strong>')
+          .addTo(mapRef.current);
+        
+        setVolunteerMarker(volMarker);
+        newMarkers.set('volunteer', volMarker);
+
+        // Create custom icon for nearby request markers (red/pulse)
+        const needIcon = L.divIcon({
+          className: 'nearby-need-marker',
+          html: `<div style="background-color: #ef4444; width: 36px; height: 36px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; animation: pulse 2s infinite;">
+            <span style="color: white; font-size: 18px;">🆘</span>
+          </div>`,
+          iconSize: [36, 36],
+          iconAnchor: [18, 18],
+          popupAnchor: [0, -18]
+        });
+
+        // Add request markers
+        requests.forEach(request => {
+          const reqLoc = {
+            lat: request.lat || request.latitude,
+            lng: request.lng || request.longitude
+          };
+
+          if (!reqLoc.lat || !reqLoc.lng) return;
+
+          const marker = L.marker([reqLoc.lat, reqLoc.lng], { icon: needIcon });
+          marker.requestId = request.id;
+
+          // Create popup with navigation buttons
+          const urgency = request.urgency || request.severity || 'medium';
+          const urgencyColor = urgency.toLowerCase() === 'high' ? '#ef4444' : 
+                               urgency.toLowerCase() === 'medium' ? '#f59e0b' : '#10b981';
+
+          const popupHTML = `
+            <div style="min-width: 220px;">
+              <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: ${urgencyColor};">
+                ${request.type || 'Need Help'}
+              </h3>
+              <p style="margin: 4px 0; font-size: 13px;"><strong>Urgency:</strong> 
+                <span style="color: ${urgencyColor}; font-weight: 600;">${urgency.toUpperCase()}</span>
+              </p>
+              ${request.description ? `<p style="margin: 4px 0; font-size: 13px;"><strong>Details:</strong> ${request.description}</p>` : ''}
+              ${request.distance ? `<p style="margin: 4px 0; font-size: 13px;"><strong>Distance:</strong> ${formatDistanceMeters(request.distance)}</p>` : ''}
+              ${request.phone ? `<p style="margin: 4px 0; font-size: 13px;"><strong>Contact:</strong> ${request.phone}</p>` : ''}
+              <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 6px;">
+                <button 
+                  class="navigate-need" 
+                  data-id="${request.id}"
+                  style="padding: 8px 12px; background-color: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; width: 100%; font-weight: 600; font-size: 13px;"
+                >
+                  🚗 Navigate to Need
+                </button>
+                <button 
+                  class="navigate-shelter" 
+                  data-id="${request.id}"
+                  style="padding: 8px 12px; background-color: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; width: 100%; font-weight: 600; font-size: 13px;"
+                >
+                  🏥 Navigate to Shelter
+                </button>
+              </div>
+            </div>
+          `;
+
+          marker.bindPopup(popupHTML);
+
+          // Attach event handlers when popup opens
+          marker.on('popupopen', () => {
+            const popup = marker.getPopup();
+            const container = popup.getElement();
+
+            // Navigate to Need button
+            const navNeedBtn = container.querySelector('.navigate-need');
+            if (navNeedBtn) {
+              navNeedBtn.onclick = () => navigateToNeed(request, volunteerLocation);
+            }
+
+            // Navigate to Shelter button
+            const navShelterBtn = container.querySelector('.navigate-shelter');
+            if (navShelterBtn) {
+              navShelterBtn.onclick = () => navigateNeedToNearestShelter(request);
+            }
+          });
+
+          marker.addTo(mapRef.current);
+          newMarkers.set(request.id, marker);
+        });
+
+        setNearbyMarkersTemp(newMarkers);
+
+        // Fit bounds to show all markers
+        try {
+          const allPoints = [
+            [volunteerLocation.lat, volunteerLocation.lng],
+            ...requests.map(r => [r.lat || r.latitude, r.lng || r.longitude]).filter(p => p[0] && p[1])
+          ];
+
+          if (allPoints.length > 0) {
+            const bounds = L.latLngBounds(allPoints);
+            mapRef.current.fitBounds(bounds, { padding: [80, 80], maxZoom: 15 });
+          }
+        } catch (error) {
+          console.error('Error fitting bounds:', error);
+          // Fallback to centering on volunteer location
+          mapRef.current.setView([volunteerLocation.lat, volunteerLocation.lng], 13);
+        }
+
+      } catch (error) {
+        console.error('[MapView] Error in handleShowNearby:', error);
+        showToast('Error displaying nearby requests', 'error');
+      }
+    };
+
+    window.addEventListener('map:show-nearby', handleShowNearby);
+
+    return () => {
+      window.removeEventListener('map:show-nearby', handleShowNearby);
+    };
+  }, [nearbyMarkersTemp]);
+
+  /**
+   * Navigate from volunteer to a need/request (from regular map markers)
+   */
+  const navigateToRequestFromMap = async (request) => {
+    try {
+      showToast('Getting your location...', 'info', 2000);
+
+      // Get volunteer location
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const volunteerLocation = {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          };
+
+          const from = [volunteerLocation.lat, volunteerLocation.lng];
+          const to = [request.lat || request.latitude, request.lng || request.longitude];
+
+          // Use the existing routing control
+          setRouteFrom(from);
+          setRouteTo(to);
+          setShowRouting(true);
+
+          showToast('Route displayed - check the routing panel', 'success', 3000);
+        },
+        (error) => {
+          console.error('Geolocation error:', error);
+          showToast('Could not get your location. Please enable location access.', 'error');
+        },
+        { timeout: 5000, enableHighAccuracy: false }
+      );
+
+    } catch (error) {
+      console.error('Error in navigateToRequestFromMap:', error);
+      showToast('Failed to compute route', 'error');
+    }
+  };
+
+  /**
+   * Navigate from a request to nearest shelter (from regular map markers)
+   */
+  const navigateRequestToShelterFromMap = async (request) => {
+    try {
+      showToast('Finding nearest shelter...', 'info', 2000);
+
+      // Load shelters
+      const allShelters = await getAll('shelters');
+      
+      if (!allShelters || allShelters.length === 0) {
+        showToast('No shelters available', 'warning');
+        return;
+      }
+
+      const requestLoc = {
+        lat: request.lat || request.latitude,
+        lng: request.lng || request.longitude
+      };
+
+      const nearestShelter = findNearestShelter(requestLoc, allShelters);
+
+      if (!nearestShelter) {
+        showToast('No shelters found', 'warning');
+        return;
+      }
+
+      const from = [requestLoc.lat, requestLoc.lng];
+      const to = [nearestShelter.lat || nearestShelter.latitude, nearestShelter.lng || nearestShelter.longitude];
+
+      // Use the existing routing control
+      setRouteFrom(from);
+      setRouteTo(to);
+      setShowRouting(true);
+
+      showToast(`Route to ${nearestShelter.name || 'shelter'} - check routing panel`, 'success', 3000);
+
+    } catch (error) {
+      console.error('Error in navigateRequestToShelterFromMap:', error);
+      showToast('Failed to find shelter route', 'error');
+    }
+  };
+
+  /**
+   * Navigate from volunteer to a need/request
+   */
+  const navigateToNeed = async (request, volunteerLocation) => {
+    try {
+      const from = [volunteerLocation.lat, volunteerLocation.lng];
+      const to = [request.lat || request.latitude, request.lng || request.longitude];
+
+      showToast('Computing route to request...', 'info', 2000);
+
+      await performRouteCalculation({
+        from,
+        to,
+        meta: { type: 'volunteer-to-need', requestId: request.id },
+        onSuccess: (route) => {
+          drawRoute(route, '#3b82f6', 'Volunteer → Need');
+          showToast(`Route: ${formatDistanceMeters(route.distance)}, ETA: ${formatDurationSeconds(route.duration)}`, 'success');
+          
+          // Dispatch event
+          window.dispatchEvent(new CustomEvent('map:route-started', { 
+            detail: { meta: route.meta } 
+          }));
+        },
+        onError: (error) => {
+          console.error('Route calculation failed:', error);
+        }
+      });
+
+    } catch (error) {
+      console.error('Error in navigateToNeed:', error);
+      showToast('Failed to compute route', 'error');
+    }
+  };
+
+  /**
+   * Navigate from a need/request to nearest shelter
+   */
+  const navigateNeedToNearestShelter = async (request) => {
+    try {
+      showToast('Finding nearest shelter...', 'info', 2000);
+
+      // Load shelters
+      const allShelters = await getAll('shelters');
+      
+      if (!allShelters || allShelters.length === 0) {
+        showToast('No shelters available offline', 'warning');
+        return;
+      }
+
+      const requestLoc = {
+        lat: request.lat || request.latitude,
+        lng: request.lng || request.longitude
+      };
+
+      const nearestShelter = findNearestShelter(requestLoc, allShelters);
+
+      if (!nearestShelter) {
+        showToast('No shelters found', 'warning');
+        return;
+      }
+
+      const from = [requestLoc.lat, requestLoc.lng];
+      const to = [nearestShelter.lat || nearestShelter.latitude, nearestShelter.lng || nearestShelter.longitude];
+
+      showToast(`Routing to ${nearestShelter.name || 'shelter'}...`, 'info', 2000);
+
+      await performRouteCalculation({
+        from,
+        to,
+        meta: { type: 'need-to-shelter', requestId: request.id, shelterId: nearestShelter.id },
+        onSuccess: (route) => {
+          drawRoute(route, '#f59e0b', 'Need → Shelter');
+          showToast(`Route to ${nearestShelter.name}: ${formatDistanceMeters(route.distance)}, ETA: ${formatDurationSeconds(route.duration)}`, 'success', 5000);
+          
+          // Dispatch event
+          window.dispatchEvent(new CustomEvent('map:route-started', { 
+            detail: { meta: route.meta } 
+          }));
+        },
+        onError: (error) => {
+          console.error('Route calculation failed:', error);
+        }
+      });
+
+    } catch (error) {
+      console.error('Error in navigateNeedToNearestShelter:', error);
+      showToast('Failed to find shelter route', 'error');
+    }
+  };
+
+  /**
+   * Draw route on map
+   */
+  const drawRoute = (route, color, title) => {
+    try {
+      // Remove existing route layer
+      if (currentRouteLayer) {
+        try {
+          currentRouteLayer.remove();
+        } catch (e) {
+          console.warn('Error removing route layer:', e);
+        }
+      }
+
+      if (!route.geometry || route.geometry.length === 0) {
+        console.warn('Route has no geometry');
+        return;
+      }
+
+      // Draw polyline
+      const polyline = L.polyline(route.geometry, {
+        color: color,
+        weight: 5,
+        opacity: 0.7,
+        smoothFactor: 1
+      }).addTo(mapRef.current);
+
+      setCurrentRouteLayer(polyline);
+      setRouteMeta(route.meta);
+
+      // Fit bounds to route
+      try {
+        mapRef.current.fitBounds(polyline.getBounds(), { padding: [60, 60] });
+      } catch (error) {
+        console.warn('Error fitting route bounds:', error);
+      }
+
+      // Show route info popup
+      const midpoint = route.geometry[Math.floor(route.geometry.length / 2)];
+      const routePopup = L.popup({ closeButton: true, autoClose: false })
+        .setLatLng(midpoint)
+        .setContent(`
+          <div style="min-width: 180px; text-align: center;">
+            <h4 style="margin: 0 0 8px 0; font-weight: 600; color: ${color};">${title}</h4>
+            <p style="margin: 4px 0; font-size: 13px;"><strong>Distance:</strong> ${formatDistanceMeters(route.distance)}</p>
+            <p style="margin: 4px 0; font-size: 13px;"><strong>ETA:</strong> ${formatDurationSeconds(route.duration)}</p>
+            ${route.source ? `<p style="margin: 4px 0; font-size: 11px; color: #666;">${route.source.includes('cache') ? '📦 Cached route' : '🌐 Live route'}</p>` : ''}
+            <button 
+              onclick="window.dispatchEvent(new CustomEvent('map:close-route'))"
+              style="margin-top: 8px; padding: 6px 12px; background-color: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; width: 100%; font-size: 12px;"
+            >
+              ✕ Close Route
+            </button>
+          </div>
+        `)
+        .openOn(mapRef.current);
+
+    } catch (error) {
+      console.error('Error drawing route:', error);
+      showToast('Error displaying route', 'error');
+    }
+  };
+
+  /**
+   * Listen for route close event
+   */
+  useEffect(() => {
+    const handleCloseRoute = () => {
+      if (currentRouteLayer) {
+        try {
+          currentRouteLayer.remove();
+          setCurrentRouteLayer(null);
+          setRouteMeta(null);
+          
+          // Dispatch closed event
+          window.dispatchEvent(new CustomEvent('map:route-closed', { 
+            detail: { meta: routeMeta } 
+          }));
+          
+          showToast('Route closed', 'info', 2000);
+        } catch (error) {
+          console.error('Error closing route:', error);
+        }
+      }
+    };
+
+    window.addEventListener('map:close-route', handleCloseRoute);
+
+    return () => {
+      window.removeEventListener('map:close-route', handleCloseRoute);
+    };
+  }, [currentRouteLayer, routeMeta]);
+
+  /**
    * Render markers for help requests
    */
   useEffect(() => {
@@ -305,19 +730,42 @@ function MapView({ filters = { showShelters: true, intensity: 50 }, mapKey = 0 }
         { icon: needHelpIcon }
       );
 
+      const urgency = request.urgency || request.severity || 'medium';
+      const urgencyColor = urgency.toLowerCase() === 'high' ? '#ef4444' : 
+                           urgency.toLowerCase() === 'medium' ? '#f59e0b' : '#10b981';
+
       const popupContent = `
-        <div style="min-width: 200px;">
-          <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #ef4444;">Help Needed</h3>
-          <p style="margin: 4px 0; font-size: 14px;"><strong>Type:</strong> ${request.type || 'General'}</p>
-          <p style="margin: 4px 0; font-size: 14px;"><strong>Severity:</strong> ${request.severity || 'Medium'}</p>
+        <div style="min-width: 220px;">
+          <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: ${urgencyColor};">
+            ${request.type || 'Help Needed'}
+          </h3>
+          <p style="margin: 4px 0; font-size: 14px;"><strong>Urgency:</strong> 
+            <span style="color: ${urgencyColor}; font-weight: 600;">${urgency.toUpperCase()}</span>
+          </p>
           ${request.description ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Details:</strong> ${request.description}</p>` : ''}
-          ${request.contact ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Contact:</strong> ${request.contact}</p>` : ''}
-          <button 
-            id="accept-btn-${request.id}"
-            style="margin-top: 8px; padding: 6px 12px; background-color: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; width: 100%;"
-          >
-            Queue Accept
-          </button>
+          ${request.contact || request.phone ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Contact:</strong> ${request.contact || request.phone}</p>` : ''}
+          <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 6px;">
+            <button 
+              class="navigate-to-request" 
+              data-id="${request.id}"
+              style="padding: 8px 12px; background-color: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; width: 100%; font-weight: 600; font-size: 13px;"
+            >
+              🚗 Navigate Here
+            </button>
+            <button 
+              class="navigate-to-shelter-from-request" 
+              data-id="${request.id}"
+              style="padding: 8px 12px; background-color: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; width: 100%; font-weight: 600; font-size: 13px;"
+            >
+              🏥 Route to Shelter
+            </button>
+            <button 
+              id="accept-btn-${request.id}"
+              style="padding: 6px 12px; background-color: #6b7280; color: white; border: none; border-radius: 4px; cursor: pointer; width: 100%; font-size: 12px;"
+            >
+              ✓ Accept Request
+            </button>
+          </div>
         </div>
       `;
 
@@ -325,6 +773,22 @@ function MapView({ filters = { showShelters: true, intensity: 50 }, mapKey = 0 }
       
       // Add click handler after popup opens
       marker.on('popupopen', () => {
+        const popup = marker.getPopup();
+        const container = popup.getElement();
+
+        // Navigate to this request button
+        const navToRequestBtn = container.querySelector('.navigate-to-request');
+        if (navToRequestBtn) {
+          navToRequestBtn.onclick = () => navigateToRequestFromMap(request);
+        }
+
+        // Navigate to shelter from this request button
+        const navToShelterBtn = container.querySelector('.navigate-to-shelter-from-request');
+        if (navToShelterBtn) {
+          navToShelterBtn.onclick = () => navigateRequestToShelterFromMap(request);
+        }
+
+        // Accept button handler
         const btn = document.getElementById(`accept-btn-${request.id}`);
         if (btn) {
           btn.onclick = async () => {
@@ -352,8 +816,8 @@ function MapView({ filters = { showShelters: true, intensity: 50 }, mapKey = 0 }
                 payload: { status: 'assigned', acceptedBy: volunteerId, history: updatedRequest.history }
               });
 
-              btn.textContent = 'Queued!';
-              btn.style.backgroundColor = '#6b7280';
+              btn.textContent = 'Accepted!';
+              btn.style.backgroundColor = '#10b981';
               btn.disabled = true;
             } catch (error) {
               console.error('Error queueing accept:', error);
