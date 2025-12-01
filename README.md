@@ -159,17 +159,6 @@ During cyclone, internet drops → offline tiles allow people to still view shel
 
 ---
 
-### 🌀 Logo  
-<p align="center">
-  <img 
-    src="./screenshots/logo.png" 
-    width="300" 
-    alt="Trivya Logo"
-  />
-</p>
-
----
-
 # 🏗️ Tech Stack
 
 ### **Frontend**
@@ -320,7 +309,7 @@ curl -X POST http://localhost:5001/api/requests \
 
 ---
 
-# 🫶🏻 Acknowledgements
+# 🤝 Acknowledgements
 
 - OpenStreetMap  
 - Leaflet.js  
@@ -330,6 +319,7 @@ curl -X POST http://localhost:5001/api/requests \
 - Service Workers  
 - WebRTC  
 - DSATM Hackathon Team  
+
 
 
 
