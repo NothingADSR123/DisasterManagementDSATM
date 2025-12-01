@@ -118,7 +118,7 @@ During cyclone, internet drops → offline tiles allow people to still view shel
 ### 🏠 Homepage  
 <p align="center">
   <img 
-    src="./frontend/screenshots/homepage.png" 
+    src="./backend/screenshots/homepage.png" 
     width="900" 
     alt="Trivya Home Page"
   />
@@ -129,7 +129,7 @@ During cyclone, internet drops → offline tiles allow people to still view shel
 ### 🗺️ Live Disaster Map  
 <p align="center">
   <img 
-    src="./frontend/screenshots/map.png" 
+    src="./backend/screenshots/map.png" 
     width="900" 
     alt="Trivya Live Map"
   />
@@ -140,7 +140,7 @@ During cyclone, internet drops → offline tiles allow people to still view shel
 ### 🤝 Volunteer Dashboard  
 <p align="center">
   <img 
-    src="./frontend/screenshots/volunter.png" 
+    src="./backend/screenshots/volunteer.png" 
     width="900" 
     alt="Trivya Volunteer Page"
   />
@@ -151,7 +151,7 @@ During cyclone, internet drops → offline tiles allow people to still view shel
 ### 🚨 Emergency Help Request  
 <p align="center">
   <img 
-    src="./frontend/screenshots/help_request.png" 
+    src="./backend/screenshots/RequestHelp.png" 
     width="900" 
     alt="Trivya Help Request Page"
   />
@@ -330,6 +330,7 @@ curl -X POST http://localhost:5001/api/requests \
 - Service Workers  
 - WebRTC  
 - DSATM Hackathon Team  
+
 
 
 
