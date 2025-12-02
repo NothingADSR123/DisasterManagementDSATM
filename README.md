@@ -1,12 +1,14 @@
-# 🛡️ Trivya — Offline-First Disaster Management PWA  
+<p align="center">
+  <img width="200" style="border-radius: 200px;" src="https://github.com/user-attachments/assets/529d3184-8967-4523-906a-5356a4e0f853" alt="image">
+</p>
+
+
+# Trivya — Offline-First Disaster Management PWA  
 *A life-saving platform that works even when the internet fails.*
 
 Trivya is an **offline-capable disaster response system** that connects people who need help with volunteers nearby.  
 The platform continues to function during floods, cyclones, network outages, or server delays — ensuring **no one is left helpless during an emergency**.
 
-<p align="center" style="margin-top:-20px; margin-bottom:-15px;">
-  <img src="./frontend/public/logo.png" width="260" alt="Trivya Logo" />
-</p>
 
 ---
 
@@ -41,7 +43,7 @@ This project was built with dedication, teamwork, and strong collaboration 🚀
    <td align="center" style="padding: 10px;">
       <a href="https://github.com/divyesh0505" style="text-decoration:none; color:inherit;">
         <img src="https://github.com/divyesh0505.png" width="110" height="110" style="border-radius:50%;"/>
-        <br/><b>Divyesh Kishor Gadilohar</b>
+        <br/><b>Divyesh Gadilohar</b>
       </a>
     </td>
 
@@ -319,6 +321,7 @@ curl -X POST http://localhost:5001/api/requests \
 - Service Workers  
 - WebRTC  
 - DSATM Hackathon Team  
+
 
 
 
